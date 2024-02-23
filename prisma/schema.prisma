@@ -12,6 +12,7 @@ datasource db {
 
 model User {
   id        String    @id @default(uuid())
+  name      String    @map("name")
   email     String    @unique
   password  String?
   provider  Provider?
@@ -20,11 +21,13 @@ model User {
   roles     Role[]
   Token     Token[]
   isBlocked Boolean   @default(false) @map("is_blocked")
+  Build     Build[]
 
   @@map("users")
 }
 
 model Token {
+  id        String   @id @default(uuid())
   token     String   @unique
   exp       DateTime
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -32,6 +35,42 @@ model Token {
   userAgent String   @map("user_agent")
 
   @@map("tokens")
+}
+
+model Task {
+  id          String   @id @default(uuid()) @map("task_id")
+  name        String
+  description String
+  input       String[]
+  output      String[]
+  Build       Build[]
+
+  @@map("tasks")
+}
+
+model Solution {
+  id      String @id @default(uuid()) @map("solution_id")
+  buildId String
+  input   String
+  output  String
+  errors  String
+  Build   Build  @relation(fields: [buildId], references: [id])
+
+  @@map("solutions")
+}
+
+model Build {
+  id        String     @id @default(uuid()) @map("build_id")
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String     @map("user_id")
+  task      Task       @relation(fields: [taskId], references: [id])
+  taskId    String     @map("task_id")
+  code      String
+  buildDate DateTime   @map("build_date")
+  Lang      String
+  Solution  Solution[]
+
+  @@map("builds")
 }
 
 enum Role {
