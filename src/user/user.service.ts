@@ -33,6 +33,7 @@ export class UserService {
 				password: hashedPassword,
 				provider: user?.provider,
 				roles: ['USER'],
+				name: user.name,
 			},
 		});
 		await this.cacheManager.set(savedUser.id, savedUser);
