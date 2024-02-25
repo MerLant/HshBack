@@ -1,26 +1,10 @@
 import { Cookie, Public, UserAgent } from '@common/decorators';
 import { HttpService } from '@nestjs/axios';
-import {
-	BadRequestException,
-	Body,
-	ClassSerializerInterceptor,
-	Controller,
-	Get,
-	HttpStatus,
-	Post,
-	Query,
-	Req,
-	Res,
-	UnauthorizedException,
-	UseGuards,
-	UseInterceptors,
-} from '@nestjs/common';
+import { Controller, Get, HttpStatus, Query, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { UserResponse } from '@user/responses';
 import { Request, Response } from 'express';
-import { map, mergeMap, tap } from 'rxjs';
+import { map, mergeMap } from 'rxjs';
 import { AuthService } from './auth.service';
-import { LoginDto, RegisterDto } from './dto';
 import { Tokens } from './interfaces';
 import { handleTimeoutAndErrors } from '@common/helpers';
 import { YandexGuard } from './guargs/yandex.guard';
@@ -36,27 +20,6 @@ export class AuthController {
 		private readonly configService: ConfigService,
 		private readonly httpService: HttpService,
 	) {}
-
-	@UseInterceptors(ClassSerializerInterceptor)
-	@Post('register')
-	async register(@Body() dto: RegisterDto) {
-		const user = await this.authService.register(dto);
-		if (!user) {
-			throw new BadRequestException(
-				`Не получается зарегистрировать пользователя с данными ${JSON.stringify(dto)}`,
-			);
-		}
-		return new UserResponse(user);
-	}
-
-	@Post('login')
-	async login(@Body() dto: LoginDto, @Res() res: Response, @UserAgent() agent: string) {
-		const tokens = await this.authService.login(dto, agent);
-		if (!tokens) {
-			throw new BadRequestException(`Не получается войти с данными ${JSON.stringify(dto)}`);
-		}
-		this.setRefreshTokenToCookies(tokens, res);
-	}
 
 	@Get('logout')
 	async logout(@Cookie(REFRESH_TOKEN) refreshToken: string, @Res() res: Response) {
@@ -104,7 +67,8 @@ export class AuthController {
 	@Get('yandex/callback')
 	yandexAuthCallback(@Req() req: Request, @Res() res: Response) {
 		const token = req.user['accessToken'];
-		return res.redirect(`http://localhost:3000/api/auth/success-yandex?token=${token}`);
+		console.log(token);
+		return res.redirect(`http://localhost:3001/api/auth/success-yandex?token=${token}`);
 	}
 
 	@Get('success-yandex')
