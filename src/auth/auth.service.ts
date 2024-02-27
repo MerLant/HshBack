@@ -129,10 +129,7 @@ export class AuthService {
 			return null;
 		});
 		if (!user) {
-			throw new HttpException(
-				`Не получилось создать пользователя с email ${email} в Google auth`,
-				HttpStatus.BAD_REQUEST,
-			);
+			throw new HttpException(`Не получилось создать пользователя с email ${email}`, HttpStatus.BAD_REQUEST);
 		}
 		return this.generateTokens(user, agent);
 	}
