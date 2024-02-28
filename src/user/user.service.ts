@@ -58,7 +58,7 @@ export class UserService {
 	 * @param {boolean} [isReset=false] Whether to reset the cache for the user.
 	 * @returns {Promise<User | null>} The found user, or null if not found.
 	 */
-	async findOne(idOrEmail: string, isReset = false): Promise<User | null> {
+	async findOne(idOrEmail: string, isReset: boolean = false): Promise<User | null> {
 		if (isReset) {
 			await Promise.all([this.cacheManager.del(idOrEmail), this.cacheManager.del(idOrEmail.toLowerCase())]);
 		}
@@ -89,10 +89,10 @@ export class UserService {
 	 * Deletes a user from the database and cache.
 	 * @param {string} id The ID of the user to delete.
 	 * @param {JwtPayload} user The authenticated user making the request.
-	 * @returns {Promise<User>} The deleted user.
+	 * @returns {Promise<{id: string}>} The deleted user.
 	 * @throws {ForbiddenException} If the user is not authorized to delete the user.
 	 */
-	async delete(id: string, user: JwtPayload) {
+	async delete(id: string, user: JwtPayload): Promise<{ id: string }> {
 		if (user.id !== id && !user.roles.includes(Role.ADMIN)) {
 			throw new ForbiddenException();
 		}

@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Provider, Token, User } from '@prisma/client';
 import { PrismaService } from '@prisma/prisma.service';
@@ -6,6 +6,10 @@ import { UserService } from '@user/user.service';
 import { add } from 'date-fns';
 import { v4 } from 'uuid';
 import { Tokens } from './interfaces';
+import { Response } from 'express';
+import { ConfigService } from '@nestjs/config';
+import axios from 'axios';
+import { REFRESH_TOKEN } from '@auth/auth.controller';
 
 @Injectable()
 export class AuthService {
@@ -20,37 +24,71 @@ export class AuthService {
 	 * @param {UserService} userService - An instance of the UserService for user operations.
 	 * @param {JwtService} jwtService - An instance of the JwtService for generating and verifying JWTs.
 	 * @param {PrismaService} prismaService - An instance of the PrismaService for interacting with the database.
+	 * @param configService
 	 */
 	constructor(
 		private readonly userService: UserService,
 		private readonly jwtService: JwtService,
 		private readonly prismaService: PrismaService,
+		private readonly configService: ConfigService,
 	) {}
 
 	/**
 	 * Refreshes access and refresh tokens based on a provided refresh token.
 	 * @param {string} refreshToken - The refresh token to use for refreshing.
-	 * @param {string} agent - The user agent making the request.
+	 * @param {string} userAgent - The user agent making the request.
 	 * @returns {Promise<Tokens>} An object containing the new access and refresh tokens.
 	 * @throws {UnauthorizedException} If the refresh token is invalid or expired.
 	 */
-	async refreshTokens(refreshToken: string, agent: string): Promise<Tokens> {
-		const token = await this.prismaService.token.delete({ where: { token: refreshToken } });
-		if (!token || new Date(token.exp) < new Date()) {
+	async refreshTokens(refreshToken: string, userAgent: string): Promise<Tokens> {
+		// Находим рефреш-токен в базе данных
+		const token = await this.prismaService.token.findFirst({
+			where: {
+				token: refreshToken,
+				userAgent,
+			},
+			include: {
+				user: true,
+			},
+		});
+
+		// Если рефреш-токена нет, то возвращаем ошибку 401 Unauthorized
+		if (!token) {
 			throw new UnauthorizedException();
 		}
-		const user = await this.userService.findOne(token.userId);
-		return this.generateTokens(user, agent);
+
+		// Если рефреш-токен истек, то удаляем его из базы данных и возвращаем ошибку 401 Unauthorized
+		if (new Date(token.exp) < new Date()) {
+			await this.prismaService.token.delete({ where: { id: token.id } });
+			throw new UnauthorizedException();
+		}
+
+		// Генерируем новый токен и рефреш-токен
+		const tokens = await this.generateTokens(token.user, userAgent);
+
+		// Обновляем рефреш-токен в базе данных
+		await this.prismaService.token.update({
+			where: {
+				id: token.id,
+			},
+			data: {
+				token: tokens.refreshToken.token,
+				exp: tokens.refreshToken.exp,
+			},
+		});
+
+		// Возвращаем новый токен и рефреш-токен
+		return tokens;
 	}
 
 	/**
 	 * Generates access and refresh tokens for a given user.
 	 * @private
 	 * @param {User} user - The user for whom to generate tokens.
-	 * @param {string} agent - The user agent making the request.
+	 * @param {string} userAgent - The user agent making the request.
 	 * @returns {Promise<Tokens>} An object containing the access and refresh tokens.
 	 */
-	private async generateTokens(user: User, agent: string): Promise<Tokens> {
+	private async generateTokens(user: User, userAgent: string): Promise<Tokens> {
 		const accessToken =
 			'Bearer ' +
 			this.jwtService.sign({
@@ -58,7 +96,7 @@ export class AuthService {
 				email: user.email,
 				roles: user.roles,
 			});
-		const refreshToken = await this.getRefreshToken(user.id, agent);
+		const refreshToken = await this.getRefreshToken(user.id, userAgent);
 		return { accessToken, refreshToken };
 	}
 
@@ -100,37 +138,50 @@ export class AuthService {
 
 	/**
 	 * Deletes a refresh token from the database.
-	 * @param {string} token - The refresh token to delete.
+	 * @param {string} refreshToken - The refresh token to delete.
 	 * @returns {Promise<Token>} The deleted token (for logging purposes).
 	 */
-	deleteRefreshToken(token: string): Promise<Token> {
-		return this.prismaService.token.delete({ where: { token } });
+	async deleteRefreshToken(refreshToken: string): Promise<void> {
+		// Удаляем рефреш-токен из базы данных
+		await this.prismaService.token.delete({ where: { token: refreshToken } });
 	}
 
 	/**
 	 * Handles authentication using a third-party provider (e.g., Google).
 	 * @param {string} email - The user's email address.
-	 * @param {string} agent - The user agent making the request.
+	 * @param {string} userAgent - The user agent making the request.
 	 * @param {Provider} provider - The third-party provider used for authentication.
 	 * @returns {Promise<Tokens>} An object containing the access and refresh tokens.
-	 * @throws {HttpException} If user creation fails.
 	 */
-	async providerAuth(email: string, agent: string, provider: Provider): Promise<Tokens> {
-		const userExists = await this.userService.findOne(email);
-		if (userExists) {
-			const user = await this.userService.save({ email, provider }).catch((err) => {
-				this.logger.error(err);
-				return null;
-			});
-			return this.generateTokens(user, agent);
-		}
-		const user = await this.userService.save({ email, provider }).catch((err) => {
-			this.logger.error(err);
-			return null;
-		});
+	async providerAuth(email: string, userAgent: string, provider: Provider): Promise<Tokens> {
+		let user = await this.userService.findOne(email);
+
 		if (!user) {
-			throw new HttpException(`Не получилось создать пользователя с email ${email}`, HttpStatus.BAD_REQUEST);
+			user = await this.userService.save({ email, provider });
 		}
-		return this.generateTokens(user, agent);
+
+		return await this.generateTokens(user, userAgent);
+	}
+
+	async setRefreshTokenToCookies(tokens: Tokens, res: Response) {
+		res.cookie(REFRESH_TOKEN, tokens.refreshToken.token, {
+			httpOnly: true,
+			sameSite: 'lax',
+			expires: new Date(tokens.refreshToken.exp),
+			secure: this.configService.get('NODE_ENV', 'development') === 'production',
+			path: '/',
+		});
+
+		res.status(HttpStatus.CREATED).json({ accessToken: tokens.accessToken });
+	}
+
+	async getUserInfoFromYandex(token: string): Promise<{ default_email: string }> {
+		try {
+			const response = await axios.get('https://login.yandex.ru/info?format=json&oauth_token=' + token);
+			return response.data;
+		} catch (error) {
+			console.error(error);
+			throw new Error('Failed to get user info from Yandex');
+		}
 	}
 }

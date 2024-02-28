@@ -9,6 +9,10 @@ async function bootstrap() {
 	app.use(cookieParser());
 	app.setGlobalPrefix('api');
 	app.useGlobalInterceptors();
+	app.enableCors({
+		origin: 'http://localhost:3000',
+		credentials: true,
+	});
 	const startPort = configService.get<number>('START_PORT') || 3000;
 	await app.listen(startPort);
 }

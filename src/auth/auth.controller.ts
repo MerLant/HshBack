@@ -1,61 +1,42 @@
 import { Cookie, Public, UserAgent } from '@common/decorators';
-import { HttpService } from '@nestjs/axios';
-import { Controller, Get, HttpStatus, Query, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Logger, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
-import { map, mergeMap } from 'rxjs';
 import { AuthService } from './auth.service';
-import { Tokens } from './interfaces';
-import { handleTimeoutAndErrors } from '@common/helpers';
 import { YandexGuard } from './guargs/yandex.guard';
 import { Provider } from '@prisma/client';
 
-const REFRESH_TOKEN = 'refreshtoken';
+export const REFRESH_TOKEN = 'refreshToken';
 
 @Public()
 @Controller('auth')
 export class AuthController {
-	constructor(
-		private readonly authService: AuthService,
-		private readonly configService: ConfigService,
-		private readonly httpService: HttpService,
-	) {}
+	/**
+	 * @private
+	 * @description Instance of the Logger class for logging purposes.
+	 */
+	private readonly logger = new Logger(AuthService.name);
+
+	constructor(private readonly authService: AuthService, private readonly configService: ConfigService) {}
 
 	@Get('logout')
 	async logout(@Cookie(REFRESH_TOKEN) refreshToken: string, @Res() res: Response) {
-		if (!refreshToken) {
-			res.sendStatus(HttpStatus.OK);
-			return;
+		if (refreshToken) {
+			await this.authService.deleteRefreshToken(refreshToken);
+			res.cookie(REFRESH_TOKEN, '', { httpOnly: true, secure: true, expires: new Date() });
 		}
-		await this.authService.deleteRefreshToken(refreshToken);
-		res.cookie(REFRESH_TOKEN, '', { httpOnly: true, secure: true, expires: new Date() });
+
 		res.sendStatus(HttpStatus.OK);
 	}
 
 	@Get('refresh-tokens')
 	async refreshTokens(@Cookie(REFRESH_TOKEN) refreshToken: string, @Res() res: Response, @UserAgent() agent: string) {
-		if (!refreshToken) {
+		if (refreshToken) {
+			const tokens = await this.authService.refreshTokens(refreshToken, agent);
+			await this.authService.setRefreshTokenToCookies(tokens, res);
+		} else {
 			throw new UnauthorizedException();
 		}
-		const tokens = await this.authService.refreshTokens(refreshToken, agent);
-		if (!tokens) {
-			throw new UnauthorizedException();
-		}
-		this.setRefreshTokenToCookies(tokens, res);
-	}
-
-	private setRefreshTokenToCookies(tokens: Tokens, res: Response) {
-		if (!tokens) {
-			throw new UnauthorizedException();
-		}
-		res.cookie(REFRESH_TOKEN, tokens.refreshToken.token, {
-			httpOnly: true,
-			sameSite: 'lax',
-			expires: new Date(tokens.refreshToken.exp),
-			secure: this.configService.get('NODE_ENV', 'development') === 'production',
-			path: '/',
-		});
-		res.status(HttpStatus.CREATED).json({ accessToken: tokens.accessToken });
 	}
 
 	@UseGuards(YandexGuard)
@@ -65,21 +46,33 @@ export class AuthController {
 
 	@UseGuards(YandexGuard)
 	@Get('yandex/callback')
-	yandexAuthCallback(@Req() req: Request, @Res() res: Response) {
-		const token = req.user['accessToken'];
-		console.log(token);
-		return res.redirect(`http://localhost:3001/api/auth/success-yandex?token=${token}`);
-	}
+	async yandexAuthCallback(@Req() req: Request, @Res() res: Response) {
+		try {
+			const token = req.user['accessToken'];
 
-	@Get('success-yandex')
-	// eslint-disable-next-line @typescript-eslint/no-empty-function
-	successYandex(@Query('token') token: string, @UserAgent() agent: string, @Res() res: Response) {
-		return this.httpService.get(`https://login.yandex.ru/info?format=json&oauth_token=${token}`).pipe(
-			mergeMap(({ data: { default_email } }) =>
-				this.authService.providerAuth(default_email, agent, Provider.YANDEX),
-			),
-			map((data) => this.setRefreshTokenToCookies(data, res)),
-			handleTimeoutAndErrors(),
-		);
+			const userInfo = await this.authService.getUserInfoFromYandex(token);
+
+			const tokens = await this.authService.providerAuth(
+				userInfo.default_email,
+				req.headers['user-agent'],
+				Provider.YANDEX,
+			);
+
+			// Сохраняем рефреш-токен в куки
+			res.cookie(REFRESH_TOKEN, tokens.refreshToken.token, {
+				httpOnly: true,
+				sameSite: 'lax',
+				expires: new Date(tokens.refreshToken.exp),
+				secure: this.configService.get('NODE_ENV', 'development') === 'production',
+				path: '/',
+			});
+
+			// Перенаправляем пользователя на главную страницу с токеном в параметрах запроса
+			res.redirect(`http://localhost:3000/`);
+		} catch (error) {
+			// Обрабатываем ошибки
+			this.logger.error(error);
+			return res.sendStatus(HttpStatus.INTERNAL_SERVER_ERROR);
+		}
 	}
 }
