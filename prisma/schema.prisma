@@ -2,170 +2,172 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-	provider = "prisma-client-js"
+    provider = "prisma-client-js"
 }
 
 datasource db {
-	provider = "postgresql"
-	url      = env("DATABASE_URL")
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
 }
 
 model User {
-	id String @id @default(uuid())
+    id String @id @default(uuid())
 
-	email     String  @unique
-	firstName String? @map("first_name")
-	lastName  String? @map("last_name")
+    email    String  @unique
+    nickName String? @unique @map("nickname")
 
-	createdAt DateTime @default(now()) @map("created_at")
-	updatedAt DateTime @updatedAt @map("updated_at")
+    createdAt DateTime @default(now()) @map("created_at")
+    updatedAt DateTime @updatedAt @map("updated_at")
 
-	roleId    Int     @map("role_id")
-	isBlocked Boolean @default(false) @map("is_blocked")
+    roleId    Int     @map("role_id")
+    isBlocked Boolean @default(false) @map("is_blocked")
 
-	Roles     Roles       @relation(fields: [roleId], references: [id])
-	Providers Providers[]
-	Token     Token[]
-	Build     Build[]
-	Groups    Groups[]
+    Roles     Roles       @relation(fields: [roleId], references: [id])
+    Providers Providers[]
+    Token     Token[]
+    Build     Build[]
+    Groups    Groups[]
 
-	@@map("users")
+    @@map("users")
 }
 
 model Token {
-	id String @id @default(uuid())
+    id String @id @default(uuid())
 
-	token     String   @unique
-	exp       DateTime
-	userId    String
-	userAgent String   @map("user_agent")
+    token     String   @unique
+    exp       DateTime
+    userId    String   @map("user_id")
+    userAgent String   @map("user_agent")
 
-	user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-	@@map("tokens")
+    @@map("tokens")
 }
 
 model Task {
-	id Int @id @default(autoincrement()) @map("task_id")
+    id Int @id @default(autoincrement()) @map("task_id")
 
-	name        String
-	description String?
+    name        String
+    description String?
 
-	input  String[]
-	output String[]
+    input  String[]
+    output String[]
 
-	runTimeout     Int @map("run_timeout")
-	runMemoryLimit Int @map("run_memory_limit")
+    runTimeout     Int @map("run_timeout")
+    runMemoryLimit Int @map("run_memory_limit")
 
-	compileTimeout     Int @map("compile_timeout")
-	compileMemoryLimit Int @map("compile_memory_limit")
+    compileTimeout     Int @map("compile_timeout")
+    compileMemoryLimit Int @map("compile_memory_limit")
 
-	themeId Int
+    themeId Int @map("theme_id")
 
-	Themes Themes  @relation(fields: [themeId], references: [id], onDelete: Cascade)
-	Build  Build[]
+    isDisable Boolean @default(false) @map("is_disable")
 
-	@@map("tasks")
+    Themes Themes  @relation(fields: [themeId], references: [id], onDelete: Cascade)
+    Build  Build[]
+
+    @@map("tasks")
 }
 
 model Solution {
-	id String @id @default(uuid()) @map("solution_id")
+    id String @id @default(uuid()) @map("solution_id")
 
-	buildId String
-	input   String
-	output  String
-	code    String
+    buildId    String  @map("build_id")
+    input      String
+    output     String?
+    statusCode String  @map("status_code")
 
-	Build Build @relation(fields: [buildId], references: [id])
+    Build Build @relation(fields: [buildId], references: [id])
 
-	@@map("solutions")
+    @@map("solutions")
 }
 
 model Build {
-	id        String   @id @default(uuid()) @map("build_id")
-	userId    String   @map("user_id")
-	taskId    Int      @map("task_id")
-	userCode  String   @map("user_code")
-	buildDate DateTime @map("build_date")
-	Lang      String?
+    id        String   @id @default(uuid()) @map("build_id")
+    userId    String   @map("user_id")
+    taskId    Int      @map("task_id")
+    userCode  String   @map("user_code")
+    buildDate DateTime @map("build_date")
+    Lang      String?  @map("lang")
 
-	user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-	task     Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
-	Solution Solution[]
+    user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+    task     Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+    Solution Solution[]
 
-	@@map("builds")
+    @@map("builds")
 }
 
 model Courses {
-	id Int @id @default(autoincrement()) @map("course_id")
+    id Int @id @default(autoincrement()) @map("course_id")
 
-	name        String
-	description String?
+    name        String
+    description String?
 
-	Themes Themes[]
+    Themes Themes[]
 
-	@@map("courses")
+    @@map("courses")
 }
 
 model Themes {
-	id Int @id @default(autoincrement()) @map("theme_id")
+    id Int @id @default(autoincrement()) @map("theme_id")
 
-	name        String
-	description String?
-	courseId    Int     @map("course_id")
-	Course      Courses @relation(fields: [courseId], references: [id], onDelete: Cascade)
+    name        String
+    description String?
+    courseId    Int     @map("course_id")
 
-	Task Task[]
+    Course Courses @relation(fields: [courseId], references: [id], onDelete: Cascade)
+    Task   Task[]
 
-	@@map("themes")
+    @@map("themes")
 }
 
 model Roles {
-	id Int @id @default(autoincrement()) @map("role_id")
+    id Int @id @default(autoincrement()) @map("role_id")
 
-	name String
+    name String
 
-	Users User[]
+    Users User[]
 
-	@@map("roles")
+    @@map("roles")
 }
 
 model Providers {
-	id Int @id @default(autoincrement()) @map("provider_id")
+    userId          String @map("user_id")
+    providersTypeId Int    @map("providers_type_id")
 
-	userId          String
-	providersTypeId Int
+    User          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+    ProvidersType ProvidersType @relation(fields: [providersTypeId], references: [id], onDelete: Cascade)
 
-	User          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-	ProvidersType ProvidersType @relation(fields: [providersTypeId], references: [id], onDelete: Cascade)
-
-	@@map("providers")
+    @@id([userId, providersTypeId])
+    @@map("providers")
 }
 
 model ProvidersType {
-	id        Int         @id @default(autoincrement()) @map("providerstype_id")
-	name      String
-	Providers Providers[]
+    id   Int    @id @default(autoincrement()) @map("providerstype_id")
+    name String
 
-	@@map("providers_type")
+    Providers Providers[]
+
+    @@map("providers_type")
 }
 
 model UsersGroup {
-	userId  String
-	groupId Int
+    userId  String @map("user_id")
+    groupId Int    @map("group_id")
 
-	@@id([userId, groupId])
-	@@map("group_users")
+    @@id([userId, groupId])
+    @@map("group_users")
 }
 
 model Groups {
-	id    Int    @id @default(autoincrement()) @map("group_id")
-	name  String
-	admin String
+    id    Int    @id @default(autoincrement()) @map("group_id")
+    name  String
+    admin String
+    code  String @unique
 
-	Users User @relation(fields: [admin], references: [id], onDelete: Cascade)
+    Users User @relation(fields: [admin], references: [id], onDelete: Cascade)
 
-	@@map("group")
+    @@map("group")
 }
 
 // enum Provider {
