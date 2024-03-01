@@ -4,7 +4,6 @@ import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { YandexGuard } from './guargs/yandex.guard';
-import { Provider } from '@prisma/client';
 
 export const REFRESH_TOKEN = 'refreshToken';
 
@@ -50,27 +49,12 @@ export class AuthController {
 		try {
 			const token = req.user['accessToken'];
 
-			const userInfo = await this.authService.getUserInfoFromYandex(token);
+			const tokens = await this.authService.authYandexUser(token, req.headers['user-agent']);
 
-			const tokens = await this.authService.providerAuth(
-				userInfo.default_email,
-				req.headers['user-agent'],
-				Provider.YANDEX,
-			);
+			await this.authService.setRefreshTokenToCookies(tokens, res);
 
-			// Сохраняем рефреш-токен в куки
-			res.cookie(REFRESH_TOKEN, tokens.refreshToken.token, {
-				httpOnly: true,
-				sameSite: 'lax',
-				expires: new Date(tokens.refreshToken.exp),
-				secure: this.configService.get('NODE_ENV', 'development') === 'production',
-				path: '/',
-			});
-
-			// Перенаправляем пользователя на главную страницу с токеном в параметрах запроса
-			res.redirect(`http://localhost:3000/`);
+			res.redirect(this.configService.get('FRONTEND_URL'));
 		} catch (error) {
-			// Обрабатываем ошибки
 			this.logger.error(error);
 			return res.sendStatus(HttpStatus.INTERNAL_SERVER_ERROR);
 		}

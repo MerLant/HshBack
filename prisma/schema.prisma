@@ -1,176 +1,191 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
 
 generator client {
-    provider = "prisma-client-js"
+  provider = "prisma-client-js"
 }
 
-datasource db {
-    provider = "postgresql"
-    url      = env("DATABASE_URL")
-}
-
+// Модель пользователя с добавлением комментариев и индексов
 model User {
-    id String @id @default(uuid())
+  id String @id @default(uuid())
 
-    email    String  @unique
-    nickName String? @unique @map("nickname")
+  nickName    String? @unique
+  displayName String?
 
-    createdAt DateTime @default(now()) @map("created_at")
-    updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    roleId    Int     @map("role_id")
-    isBlocked Boolean @default(false) @map("is_blocked")
+  roleId    Int?
+  isBlocked Boolean @default(false)
 
-    Roles     Roles       @relation(fields: [roleId], references: [id])
-    Providers Providers[]
-    Token     Token[]
-    Build     Build[]
-    Groups    Groups[]
+  Role Role? @relation(fields: [roleId], references: [id], onDelete: SetNull)
 
-    @@map("users")
+  Provider  Provider[]
+  Token     Token[]
+  Build     Build[]
+  Group     Group[]
+  UserGroup UserGroup[]
+
+  @@index([displayName, isBlocked])
+  @@map("user")
 }
 
+// Модель токена с указанием индекса для поиска
 model Token {
-    id String @id @default(uuid())
+  id String @id @default(uuid())
 
-    token     String   @unique
-    exp       DateTime
-    userId    String   @map("user_id")
-    userAgent String   @map("user_agent")
+  token     String   @unique
+  exp       DateTime
+  userId    String
+  userAgent String
 
-    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-    @@map("tokens")
+  @@index([exp, userId])
+  @@map("token")
 }
 
+// Обновление полей согласно согласованности именования и добавление комментариев
 model Task {
-    id Int @id @default(autoincrement()) @map("task_id")
+  id Int @id @default(autoincrement())
 
-    name        String
-    description String?
+  name        String
+  description String?
 
-    input  String[]
-    output String[]
+  input  Json
+  output Json
 
-    runTimeout     Int @map("run_timeout")
-    runMemoryLimit Int @map("run_memory_limit")
+  runTimeout     Int
+  runMemoryLimit Int
 
-    compileTimeout     Int @map("compile_timeout")
-    compileMemoryLimit Int @map("compile_memory_limit")
+  compileTimeout     Int
+  compileMemoryLimit Int
 
-    themeId Int @map("theme_id")
+  themeId   Int
+  isDisable Boolean @default(false)
 
-    isDisable Boolean @default(false) @map("is_disable")
+  Theme Theme   @relation(fields: [themeId], references: [id], onDelete: Cascade)
+  Build Build[]
 
-    Themes Themes  @relation(fields: [themeId], references: [id], onDelete: Cascade)
-    Build  Build[]
-
-    @@map("tasks")
+  @@index([name, isDisable])
+  @@map("task")
 }
 
+// Добавление комментариев к модели решения
 model Solution {
-    id String @id @default(uuid()) @map("solution_id")
+  id String @id @default(uuid())
 
-    buildId    String  @map("build_id")
-    input      String
-    output     String?
-    statusCode String  @map("status_code")
+  buildId    String
+  input      String
+  output     String?
+  statusCode String
 
-    Build Build @relation(fields: [buildId], references: [id])
+  Build Build @relation(fields: [buildId], references: [id], onDelete: Cascade)
 
-    @@map("solutions")
+  @@map("solution")
 }
 
+// Уточнение связей и индексация для Build
 model Build {
-    id        String   @id @default(uuid()) @map("build_id")
-    userId    String   @map("user_id")
-    taskId    Int      @map("task_id")
-    userCode  String   @map("user_code")
-    buildDate DateTime @map("build_date")
-    Lang      String?  @map("lang")
+  id        String   @id @default(uuid())
+  userId    String
+  taskId    Int
+  userCode  String
+  buildDate DateTime
+  lang      String?
 
-    user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-    task     Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
-    Solution Solution[]
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task     Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  Solution Solution[]
 
-    @@map("builds")
+  @@index([userId, taskId])
+  @@map("build")
 }
 
-model Courses {
-    id Int @id @default(autoincrement()) @map("course_id")
+// Пример документирования модели курса
+model Course {
+  id          Int     @id @default(autoincrement())
+  name        String
+  description String?
 
-    name        String
-    description String?
+  Theme Theme[]
 
-    Themes Themes[]
-
-    @@map("courses")
+  @@map("course")
 }
 
-model Themes {
-    id Int @id @default(autoincrement()) @map("theme_id")
+// Добавление индексов и комментариев для модели темы
+model Theme {
+  id          Int     @id @default(autoincrement())
+  name        String
+  description String?
+  courseId    Int
 
-    name        String
-    description String?
-    courseId    Int     @map("course_id")
+  Course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  Task   Task[]
 
-    Course Courses @relation(fields: [courseId], references: [id], onDelete: Cascade)
-    Task   Task[]
-
-    @@map("themes")
+  @@index([name])
+  @@map("theme")
 }
 
-model Roles {
-    id Int @id @default(autoincrement()) @map("role_id")
+// Роли с индексом для улучшения поиска
+model Role {
+  id   Int    @id @default(autoincrement())
+  name String @unique
 
-    name String
+  User User[]
 
-    Users User[]
-
-    @@map("roles")
+  @@index([name])
+  @@map("role")
 }
 
-model Providers {
-    userId          String @map("user_id")
-    providersTypeId Int    @map("providers_type_id")
+// Обеспечение уникальности для Provider
+model Provider {
+  userId         String
+  providerTypeId Int
+  providerUserId String
+  providerToken  String?
 
-    User          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-    ProvidersType ProvidersType @relation(fields: [providersTypeId], references: [id], onDelete: Cascade)
+  User         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ProviderType ProviderType @relation(fields: [providerTypeId], references: [id], onDelete: Cascade)
 
-    @@id([userId, providersTypeId])
-    @@map("providers")
+  @@id([providerUserId, providerTypeId])
+  @@map("provider")
 }
 
-model ProvidersType {
-    id   Int    @id @default(autoincrement()) @map("providerstype_id")
-    name String
+// Документация и индексация для ProviderType
+model ProviderType {
+  id   Int    @id @default(autoincrement())
+  name String @unique
 
-    Providers Providers[]
+  Provider Provider[]
 
-    @@map("providers_type")
+  @@map("provider_type")
 }
 
-model UsersGroup {
-    userId  String @map("user_id")
-    groupId Int    @map("group_id")
+// Оптимизация связей для UserGroup
+model UserGroup {
+  userId  String
+  groupId Int
 
-    @@id([userId, groupId])
-    @@map("group_users")
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([userId, groupId])
+  @@map("users_group")
 }
 
-model Groups {
-    id    Int    @id @default(autoincrement()) @map("group_id")
-    name  String
-    admin String
-    code  String @unique
+// Группы с индексацией для улучшения поиска
+model Group {
+  id    Int    @id @default(autoincrement())
+  name  String
+  admin String
+  code  String @unique
 
-    Users User @relation(fields: [admin], references: [id], onDelete: Cascade)
+  Users      User        @relation(fields: [admin], references: [id])
+  UsersGroup UserGroup[]
 
-    @@map("group")
+  @@index([name, code])
+  @@map("group")
 }
-
-// enum Provider {
-//     VK
-//     YANDEX
-// }

@@ -1,6 +1,6 @@
-import { HttpStatus, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { Provider, Token, User } from '@prisma/client';
+import { ProviderType, Token, User } from '@prisma/client';
 import { PrismaService } from '@prisma/prisma.service';
 import { UserService } from '@user/user.service';
 import { add } from 'date-fns';
@@ -10,6 +10,7 @@ import { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { REFRESH_TOKEN } from '@auth/auth.controller';
+import { YandexUserResponseDto } from '@auth/dto';
 
 @Injectable()
 export class AuthService {
@@ -93,8 +94,6 @@ export class AuthService {
 			'Bearer ' +
 			this.jwtService.sign({
 				id: user.id,
-				email: user.email,
-				roles: user.roles,
 			});
 		const refreshToken = await this.getRefreshToken(user.id, userAgent);
 		return { accessToken, refreshToken };
@@ -148,22 +147,100 @@ export class AuthService {
 
 	/**
 	 * Handles authentication using a third-party provider (e.g., Google).
-	 * @param {string} email - The user's email address.
+	 * @param user
 	 * @param {string} userAgent - The user agent making the request.
-	 * @param {Provider} provider - The third-party provider used for authentication.
 	 * @returns {Promise<Tokens>} An object containing the access and refresh tokens.
 	 */
-	async providerAuth(email: string, userAgent: string, provider: Provider): Promise<Tokens> {
-		let user = await this.userService.findOne(email);
-
-		if (!user) {
-			user = await this.userService.save({ email, provider });
-		}
-
+	async auth(user: User, userAgent: string): Promise<Tokens> {
 		return await this.generateTokens(user, userAgent);
 	}
 
-	async setRefreshTokenToCookies(tokens: Tokens, res: Response) {
+	async registerUser(providerToken: string, providerUserId: string, providerType: Partial<ProviderType>) {
+		try {
+			const registeredUser = await this.userService.createUser();
+			await this.addProviderToUser(registeredUser, providerToken, providerUserId, providerType);
+			return registeredUser;
+		} catch (error) {
+			throw new Error(`User registration error: ${error}`);
+		}
+	}
+
+	async authYandexUser(yandexToken: string, userAgent: string) {
+		const yandexUserId = await this.getUserIdFromYandex(yandexToken);
+		const yandexProvider = await this.prismaService.providerType.findFirst({
+			where: {
+				name: 'YANDEX',
+			},
+		});
+
+		let user: User | undefined;
+		if (await this.isRegistered(yandexUserId, yandexProvider)) {
+			user = await this.getUser(yandexUserId, yandexProvider);
+		} else {
+			user = await this.registerUser(yandexToken, yandexUserId, yandexProvider);
+		}
+
+		if (!user) {
+			this.logger.error('Authorization error via Yandex');
+			throw new HttpException('Authorization error via Yandex', HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+
+		return await this.auth(user, userAgent);
+	}
+
+	async isRegistered(providerUserId: string, providerType: ProviderType): Promise<boolean> {
+		const existingProvider = await this.prismaService.provider.findFirst({
+			where: {
+				providerUserId: providerUserId,
+				providerTypeId: providerType.id,
+			},
+		});
+
+		return !!existingProvider;
+	}
+
+	async getUser(providerUserId: string, providerType: ProviderType) {
+		try {
+			// Извлекаем пользователя напрямую через связь в provider
+			const userProvider = await this.prismaService.provider.findFirst({
+				where: {
+					providerUserId: providerUserId,
+					providerTypeId: providerType.id,
+				},
+				include: {
+					User: true,
+				},
+			});
+
+			return userProvider.User;
+		} catch (error) {
+			this.logger.error('Error getting a user:', error);
+			throw new HttpException('Error getting a user', HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+	}
+
+	async addProviderToUser(
+		user: Partial<User>,
+		providerToken: string,
+		providerUserId: string,
+		providerType: Partial<ProviderType>,
+	) {
+		try {
+			return await this.prismaService.provider.create({
+				data: {
+					userId: user.id,
+					providerToken: providerToken,
+					providerUserId: providerUserId,
+					providerTypeId: providerType.id,
+				},
+			});
+		} catch (error) {
+			this.logger.error('Error adding a new provider to the user:', error);
+			throw new HttpException('Error adding a new provider to the user', HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+	}
+
+	async setRefreshTokenToCookies(tokens: Tokens, res: Response, noBody: boolean = false) {
 		res.cookie(REFRESH_TOKEN, tokens.refreshToken.token, {
 			httpOnly: true,
 			sameSite: 'lax',
@@ -172,16 +249,25 @@ export class AuthService {
 			path: '/',
 		});
 
-		res.status(HttpStatus.CREATED).json({ accessToken: tokens.accessToken });
+		if (!noBody) {
+			res.status(HttpStatus.CREATED).json({ accessToken: tokens.accessToken });
+		}
 	}
 
-	async getUserInfoFromYandex(token: string): Promise<{ default_email: string }> {
+	async getUserIdFromYandex(token: string) {
 		try {
-			const response = await axios.get('https://login.yandex.ru/info?format=json&oauth_token=' + token);
-			return response.data;
+			const response = await axios.get<YandexUserResponseDto>(
+				'https://login.yandex.ru/info?format=json&oauth_token=' + token,
+			);
+			if (!response.data || !response.data.id) {
+				throw new HttpException('No user id in response', HttpStatus.BAD_GATEWAY);
+			}
+
+			return response.data.id;
 		} catch (error) {
-			console.error(error);
-			throw new Error('Failed to get user info from Yandex');
+			this.logger.error('Failed to get user info from Yandex:', error);
+
+			throw new HttpException(`Failed to get user info from Yandex`, HttpStatus.INTERNAL_SERVER_ERROR);
 		}
 	}
 }

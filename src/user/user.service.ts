@@ -3,9 +3,9 @@ import { convertToSecondsUtil } from '@common/utils';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { ForbiddenException, HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Role, User } from '@prisma/client';
 import { PrismaService } from '@prisma/prisma.service';
 import { Cache } from 'cache-manager';
+import { Provider, ProviderType, User } from '@prisma/client';
 
 @Injectable()
 export class UserService {
@@ -21,13 +21,22 @@ export class UserService {
 		private readonly configService: ConfigService,
 	) {}
 
+	async createUser() {
+		try {
+			return await this.prismaService.user.create({ data: {} });
+		} catch (error) {
+			throw new Error(`User creation error: ${error}`);
+		}
+	}
+
 	/**
 	 * Saves a user to the database and cache.
 	 * @param {Partial<User>} user The user data to save.
+	 * @param providerType
 	 * @returns {Promise<User>} The saved user.
 	 * @throws {HttpException} If an error occurs while saving the user.
 	 */
-	async save(user: Partial<User>): Promise<User> {
+	async save(user: Partial<User>, providerType: ProviderType): Promise<User> {
 		try {
 			const savedUser = await this.prismaService.user.upsert({
 				where: {
@@ -39,7 +48,6 @@ export class UserService {
 					isBlocked: user.isBlocked,
 				},
 				create: {
-					email: user.email.toLowerCase(),
 					provider: user.provider,
 					roles: ['USER'],
 				},
