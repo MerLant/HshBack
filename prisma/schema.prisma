@@ -1,191 +1,214 @@
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+	provider = "postgresql"
+	url      = env("DATABASE_URL")
 }
 
 generator client {
-  provider = "prisma-client-js"
+	provider = "prisma-client-js"
 }
 
 // Модель пользователя с добавлением комментариев и индексов
 model User {
-  id String @id @default(uuid())
+	id String @id @default(uuid())
 
-  nickName    String? @unique
-  displayName String?
+	nickName    String? @unique
+	displayName String?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+	createdAt DateTime @default(now())
+	updatedAt DateTime @updatedAt
 
-  roleId    Int?
-  isBlocked Boolean @default(false)
+	roleId    Int?
+	isBlocked Boolean @default(false)
 
-  Role Role? @relation(fields: [roleId], references: [id], onDelete: SetNull)
+	Role Role? @relation(fields: [roleId], references: [id], onDelete: SetNull)
 
-  Provider  Provider[]
-  Token     Token[]
-  Build     Build[]
-  Group     Group[]
-  UserGroup UserGroup[]
+	Provider  Provider[]
+	Token     Token[]
+	Build     Build[]
+	Group     Group[]
+	UserGroup UserGroup[]
+	Session   Session[]
 
-  @@index([displayName, isBlocked])
-  @@map("user")
+	@@index([displayName, isBlocked])
+	@@map("user")
 }
 
 // Модель токена с указанием индекса для поиска
 model Token {
-  id String @id @default(uuid())
+	id String @id @default(uuid())
 
-  token     String   @unique
-  exp       DateTime
-  userId    String
-  userAgent String
+	token     String   @unique
+	exp       DateTime
+	userId    String
+	userAgent String
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+	user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+	Session Session?
 
-  @@index([exp, userId])
-  @@map("token")
+	@@index([exp, userId])
+	@@map("token")
 }
 
 // Обновление полей согласно согласованности именования и добавление комментариев
 model Task {
-  id Int @id @default(autoincrement())
+	id Int @id @default(autoincrement())
 
-  name        String
-  description String?
+	name        String
+	description String?
 
-  input  Json
-  output Json
+	input  Json
+	output Json
 
-  runTimeout     Int
-  runMemoryLimit Int
+	runTimeout     Int
+	runMemoryLimit Int
 
-  compileTimeout     Int
-  compileMemoryLimit Int
+	compileTimeout     Int
+	compileMemoryLimit Int
 
-  themeId   Int
-  isDisable Boolean @default(false)
+	themeId   Int
+	isDisable Boolean @default(false)
 
-  Theme Theme   @relation(fields: [themeId], references: [id], onDelete: Cascade)
-  Build Build[]
+	Theme Theme   @relation(fields: [themeId], references: [id], onDelete: Cascade)
+	Build Build[]
 
-  @@index([name, isDisable])
-  @@map("task")
+	@@index([name, isDisable])
+	@@map("task")
 }
 
 // Добавление комментариев к модели решения
 model Solution {
-  id String @id @default(uuid())
+	id String @id @default(uuid())
 
-  buildId    String
-  input      String
-  output     String?
-  statusCode String
+	buildId    String
+	input      String
+	output     String?
+	statusCode String
 
-  Build Build @relation(fields: [buildId], references: [id], onDelete: Cascade)
+	Build Build @relation(fields: [buildId], references: [id], onDelete: Cascade)
 
-  @@map("solution")
+	@@map("solution")
 }
 
 // Уточнение связей и индексация для Build
 model Build {
-  id        String   @id @default(uuid())
-  userId    String
-  taskId    Int
-  userCode  String
-  buildDate DateTime
-  lang      String?
+	id        String   @id @default(uuid())
+	userId    String
+	taskId    Int
+	userCode  String
+	buildDate DateTime
+	lang      String?
 
-  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  task     Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  Solution Solution[]
+	user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+	task     Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+	Solution Solution[]
 
-  @@index([userId, taskId])
-  @@map("build")
+	@@index([userId, taskId])
+	@@map("build")
 }
 
 // Пример документирования модели курса
 model Course {
-  id          Int     @id @default(autoincrement())
-  name        String
-  description String?
+	id          Int     @id @default(autoincrement())
+	name        String
+	description String?
 
-  Theme Theme[]
+	Theme Theme[]
 
-  @@map("course")
+	@@map("course")
 }
 
 // Добавление индексов и комментариев для модели темы
 model Theme {
-  id          Int     @id @default(autoincrement())
-  name        String
-  description String?
-  courseId    Int
+	id          Int     @id @default(autoincrement())
+	name        String
+	description String?
+	courseId    Int
 
-  Course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  Task   Task[]
+	Course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+	Task   Task[]
 
-  @@index([name])
-  @@map("theme")
+	@@index([name])
+	@@map("theme")
 }
 
 // Роли с индексом для улучшения поиска
 model Role {
-  id   Int    @id @default(autoincrement())
-  name String @unique
+	id   Int    @id @default(autoincrement())
+	name String @unique
 
-  User User[]
+	User User[]
 
-  @@index([name])
-  @@map("role")
+	@@index([name])
+	@@map("role")
 }
 
 // Обеспечение уникальности для Provider
 model Provider {
-  userId         String
-  providerTypeId Int
-  providerUserId String
-  providerToken  String?
+	userId         String
+	providerTypeId Int
+	providerUserId String
 
-  User         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  ProviderType ProviderType @relation(fields: [providerTypeId], references: [id], onDelete: Cascade)
+	User          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+	ProviderType  ProviderType    @relation(fields: [providerTypeId], references: [id], onDelete: Cascade)
+	ProviderToken ProviderToken[]
 
-  @@id([providerUserId, providerTypeId])
-  @@map("provider")
+	@@id([providerUserId, providerTypeId])
+	@@map("provider")
+}
+
+model Session {
+	id              String @id @default(uuid())
+	refreshTokenId  String @unique
+	providerTokenId String @unique
+
+	Token         Token         @relation(fields: [refreshTokenId], references: [id], onDelete: Cascade)
+	ProviderToken ProviderToken @relation(fields: [providerTokenId], references: [id], onDelete: Cascade)
+	User          User?         @relation(fields: [userId], references: [id])
+	userId        String?
+}
+
+model ProviderToken {
+	id             String @id @default(uuid())
+	providerToken  String @unique
+	providerUserId String
+	providerTypeId Int
+
+	Provider Provider  @relation(fields: [providerUserId, providerTypeId], references: [providerUserId, providerTypeId])
+	Session  Session[]
 }
 
 // Документация и индексация для ProviderType
 model ProviderType {
-  id   Int    @id @default(autoincrement())
-  name String @unique
+	id   Int    @id @default(autoincrement())
+	name String @unique
 
-  Provider Provider[]
+	Provider Provider[]
 
-  @@map("provider_type")
+	@@map("provider_type")
 }
 
 // Оптимизация связей для UserGroup
 model UserGroup {
-  userId  String
-  groupId Int
+	userId  String
+	groupId Int
 
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+	user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+	group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
-  @@id([userId, groupId])
-  @@map("users_group")
+	@@id([userId, groupId])
+	@@map("users_group")
 }
 
 // Группы с индексацией для улучшения поиска
 model Group {
-  id    Int    @id @default(autoincrement())
-  name  String
-  admin String
-  code  String @unique
+	id    Int    @id @default(autoincrement())
+	name  String
+	admin String
+	code  String @unique
 
-  Users      User        @relation(fields: [admin], references: [id])
-  UsersGroup UserGroup[]
+	Users      User        @relation(fields: [admin], references: [id])
+	UsersGroup UserGroup[]
 
-  @@index([name, code])
-  @@map("group")
+	@@index([name, code])
+	@@map("group")
 }

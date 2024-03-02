@@ -1,16 +1,15 @@
 import { HttpException, HttpStatus, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { ProviderType, Token, User } from '@prisma/client';
+import { ProviderType, Session, Token, User } from '@prisma/client';
 import { PrismaService } from '@prisma/prisma.service';
 import { UserService } from '@user/user.service';
-import { add } from 'date-fns';
-import { v4 } from 'uuid';
 import { Tokens } from './interfaces';
 import { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { REFRESH_TOKEN } from '@auth/auth.controller';
 import { YandexUserResponseDto } from '@auth/dto';
+import { v4 } from 'uuid';
 
 @Injectable()
 export class AuthService {
@@ -32,107 +31,166 @@ export class AuthService {
 		private readonly jwtService: JwtService,
 		private readonly prismaService: PrismaService,
 		private readonly configService: ConfigService,
-	) {}
+	) {
+	}
 
 	/**
-	 * Refreshes access and refresh tokens based on a provided refresh token.
-	 * @param {string} refreshToken - The refresh token to use for refreshing.
-	 * @param {string} userAgent - The user agent making the request.
-	 * @returns {Promise<Tokens>} An object containing the new access and refresh tokens.
-	 * @throws {UnauthorizedException} If the refresh token is invalid or expired.
+	 * Генерирует токены доступа и обновления для пользователя.
+	 *
+	 * @param {User} user - Пользователь, для которого генерируются токены.
+	 * @param {string} userAgent - User agent источника запроса.
+	 * @returns {Promise<Tokens>} Объект, содержащий новые токены доступа и обновления.
+	 */
+	private async generateTokens(user: User, userAgent: string): Promise<Tokens> {
+		const accessToken = 'Bearer ' + this.jwtService.sign({ id: user.id });
+
+		// Создаем новый рефреш-токен.
+		const refreshTokenObject = await this.createRefreshToken(user.id, userAgent);
+
+		// Возвращаем объект, содержащий все необходимые данные о токенах.
+		return {
+			accessToken,
+			refreshToken: refreshTokenObject, // Теперь возвращаем весь объект рефреш-токена.
+		};
+	}
+
+	/**
+	 * Создает новый рефреш-токен в базе данных.
+	 *
+	 * @param {string} userId - Идентификатор пользователя.
+	 * @param {string} userAgent - User agent источника запроса.
+	 * @returns {Promise<Token>} Объект нового рефреш-токена.
+	 */
+	private async createRefreshToken(userId: string, userAgent: string): Promise<Token> {
+		return this.prismaService.token.create({
+			data: {
+				userId: userId,
+				userAgent: userAgent,
+				token: v4(), // Генерация уникального токена.
+				exp: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30), // Пример: устанавливаем срок действия на 30 дней.
+			},
+		});
+	}
+
+	/**
+	 * Обновляет токены доступа и обновления на основе предоставленного рефреш-токена.
+	 *
+	 * @param {string} refreshToken - Рефреш-токен, используемый для обновления.
+	 * @param {string} userAgent - User agent источника запроса.
+	 * @returns {Promise<Tokens>} Объект, содержащий новые токены доступа и обновления.
+	 * @throws {UnauthorizedException} Если рефреш-токен недействителен или истек.
 	 */
 	async refreshTokens(refreshToken: string, userAgent: string): Promise<Tokens> {
-		// Находим рефреш-токен в базе данных
-		const token = await this.prismaService.token.findFirst({
+		const oldToken = await this.getRefreshToken(refreshToken);
+
+		if (!oldToken || new Date(oldToken.exp) < new Date() || oldToken.userAgent !== userAgent) {
+			if (oldToken) {
+				await this.deleteRefreshToken(oldToken.token);
+			}
+			throw new UnauthorizedException();
+		}
+
+		// Генерируем новые токены и создаем новый рефреш-токен в базе данных
+		const tokens = await this.generateTokens(oldToken.user, userAgent);
+		const newRefreshToken = await this.generateRefreshToken(tokens.refreshToken, oldToken.user.id, userAgent);
+
+		// Обновляем refreshTokenId в ProviderToken, прежде чем удалять старый рефреш-токен
+		await this.updateSessionRefreshTokenId(oldToken.id, newRefreshToken.id);
+
+		// После обновления связанных записей удаляем старый рефреш-токен
+		await this.deleteRefreshToken(oldToken.token);
+
+		return tokens;
+	}
+
+	/**
+	 * Обновляет refreshTokenId для связанного ProviderToken.
+	 *
+	 * @param {string} oldRefreshTokenId - ID старого рефреш-токена.
+	 * @param {string} newRefreshTokenId - ID нового рефреш-токена.
+	 */
+	/**
+	 * Обновляет refreshTokenId для сессии пользователя.
+	 *
+	 * @param {string} oldRefreshTokenId - ID старого рефреш-токена.
+	 * @param {string} newRefreshTokenId - ID нового рефреш-токена.
+	 * @returns {Promise<void>}
+	 */
+	async updateSessionRefreshTokenId(oldRefreshTokenId: string, newRefreshTokenId: string): Promise<void> {
+		// Находим сессию, связанную со старым рефреш-токеном.
+		const session = await this.prismaService.session.findFirst({
+			where: {
+				refreshTokenId: oldRefreshTokenId,
+			},
+		});
+
+		// Если сессия найдена, обновляем refreshTokenId.
+		if (session) {
+			await this.prismaService.session.update({
+				where: {
+					id: session.id,
+				},
+				data: {
+					refreshTokenId: newRefreshTokenId,
+				},
+			});
+		}
+	}
+
+	/**
+	 * Генерирует рефреш-токен в базе данных.
+	 *
+	 * @param {Token} refreshToken - Новый рефреш-токен.
+	 * @param {string} userId - Идентификатор пользователя.
+	 * @param {string} userAgent - User agent источника запроса.
+	 */
+	private async generateRefreshToken(refreshToken: Token, userId: string, userAgent: string) {
+		return this.prismaService.token.create({
+			data: {
+				token: refreshToken.token,
+				userId: userId,
+				userAgent: userAgent,
+				exp: refreshToken.exp,
+			},
+		});
+	}
+
+	/**
+	 * Ищет и возвращает объект рефреш-токена из базы данных.
+	 *
+	 * @param {string} refreshToken - Рефреш-токен, который нужно найти.
+	 * @returns {Promise<Token, User>} Объект рефреш-токена и юзера, если токен не найден.
+	 */
+	private async getRefreshToken(refreshToken: string) {
+		return this.prismaService.token.findUnique({
 			where: {
 				token: refreshToken,
-				userAgent,
+			},
+			include: {
+				user: true,
+			},
+		});
+	}
+
+	async logout(refreshToken: string, res: Response) {
+		if (refreshToken === '') {
+			return res.sendStatus(HttpStatus.OK);
+		}
+		const logoutUser = this.prismaService.token.findFirst({
+			where: {
+				token: refreshToken,
 			},
 			include: {
 				user: true,
 			},
 		});
 
-		// Если рефреш-токена нет, то возвращаем ошибку 401 Unauthorized
-		if (!token) {
-			throw new UnauthorizedException();
+		if (!logoutUser) {
 		}
-
-		// Если рефреш-токен истек, то удаляем его из базы данных и возвращаем ошибку 401 Unauthorized
-		if (new Date(token.exp) < new Date()) {
-			await this.prismaService.token.delete({ where: { id: token.id } });
-			throw new UnauthorizedException();
-		}
-
-		// Генерируем новый токен и рефреш-токен
-		const tokens = await this.generateTokens(token.user, userAgent);
-
-		// Обновляем рефреш-токен в базе данных
-		await this.prismaService.token.update({
-			where: {
-				id: token.id,
-			},
-			data: {
-				token: tokens.refreshToken.token,
-				exp: tokens.refreshToken.exp,
-			},
-		});
-
-		// Возвращаем новый токен и рефреш-токен
-		return tokens;
 	}
 
-	/**
-	 * Generates access and refresh tokens for a given user.
-	 * @private
-	 * @param {User} user - The user for whom to generate tokens.
-	 * @param {string} userAgent - The user agent making the request.
-	 * @returns {Promise<Tokens>} An object containing the access and refresh tokens.
-	 */
-	private async generateTokens(user: User, userAgent: string): Promise<Tokens> {
-		const accessToken =
-			'Bearer ' +
-			this.jwtService.sign({
-				id: user.id,
-			});
-		const refreshToken = await this.getRefreshToken(user.id, userAgent);
-		return { accessToken, refreshToken };
-	}
-
-	/**
-	 * Retrieves or creates a refresh token for a user based on user ID and agent.
-	 * @private
-	 * @param {string} userId - The ID of the user.
-	 * @param {string} agent - The user agent making the request.
-	 * @returns {Promise<Token>} The retrieved or created refresh token.
-	 */
-	private async getRefreshToken(userId: string, agent: string): Promise<Token> {
-		const existingToken = await this.prismaService.token.findFirst({
-			where: {
-				userId,
-				userAgent: agent,
-			},
-		});
-
-		if (existingToken) {
-			return this.prismaService.token.update({
-				where: {
-					id: existingToken.id,
-				},
-				data: {
-					exp: add(new Date(), { months: 1 }),
-				},
-			});
-		}
-
-		return this.prismaService.token.create({
-			data: {
-				token: v4(),
-				exp: add(new Date(), { months: 1 }),
-				userId,
-				userAgent: agent,
-			},
-		});
+	async clearCookie(res: Response) {
+		res.cookie(REFRESH_TOKEN, '', { httpOnly: true, secure: true, expires: new Date() });
 	}
 
 	/**
@@ -146,26 +204,23 @@ export class AuthService {
 	}
 
 	/**
-	 * Handles authentication using a third-party provider (e.g., Google).
+	 * Handles authentication using a third-party provider (e.g., Yandex).
 	 * @param user
 	 * @param {string} userAgent - The user agent making the request.
+	 * @param session
 	 * @returns {Promise<Tokens>} An object containing the access and refresh tokens.
 	 */
-	async auth(user: User, userAgent: string): Promise<Tokens> {
+	async auth(user: User, userAgent: string, session: Partial<Session>): Promise<Tokens> {
 		return await this.generateTokens(user, userAgent);
 	}
 
-	async registerUser(providerToken: string, providerUserId: string, providerType: Partial<ProviderType>) {
-		try {
-			const registeredUser = await this.userService.createUser();
-			await this.addProviderToUser(registeredUser, providerToken, providerUserId, providerType);
-			return registeredUser;
-		} catch (error) {
-			throw new Error(`User registration error: ${error}`);
-		}
-	}
 
 	async authYandexUser(yandexToken: string, userAgent: string) {
+
+		if () {
+
+		}
+
 		const yandexUserId = await this.getUserIdFromYandex(yandexToken);
 		const yandexProvider = await this.prismaService.providerType.findFirst({
 			where: {
@@ -185,10 +240,22 @@ export class AuthService {
 			throw new HttpException('Authorization error via Yandex', HttpStatus.INTERNAL_SERVER_ERROR);
 		}
 
+		const await;
+		this.createProviderToken(yandexToken, yandexUserId, yandexProvider);
+
+
 		return await this.auth(user, userAgent);
 	}
 
-	async isRegistered(providerUserId: string, providerType: ProviderType): Promise<boolean> {
+	private async createProviderToken(providerToken: string, providerUser: string, providerType: Partial<ProviderType>) {
+
+	}
+
+	private async createSession(providerTokenId: number, tokenId: number) {
+
+	}
+
+	private async isRegistered(providerUserId: string, providerType: ProviderType): Promise<boolean> {
 		const existingProvider = await this.prismaService.provider.findFirst({
 			where: {
 				providerUserId: providerUserId,
@@ -199,7 +266,7 @@ export class AuthService {
 		return !!existingProvider;
 	}
 
-	async getUser(providerUserId: string, providerType: ProviderType) {
+	private async getUser(providerUserId: string, providerType: ProviderType) {
 		try {
 			// Извлекаем пользователя напрямую через связь в provider
 			const userProvider = await this.prismaService.provider.findFirst({
@@ -219,17 +286,32 @@ export class AuthService {
 		}
 	}
 
-	async addProviderToUser(
-		user: Partial<User>,
-		providerToken: string,
-		providerUserId: string,
-		providerType: Partial<ProviderType>,
-	) {
+	private async checkProviderToken(providerToken: string) {
 		try {
-			return await this.prismaService.provider.create({
+			const checkedToken = this.prismaService.providerToken();
+		} catch (error) {
+
+		}
+	}
+
+	private async addProviderToken() {
+	}
+
+	async registerUser(providerToken: string, providerUserId: string, providerType: Partial<ProviderType>) {
+		try {
+			const registeredUser = await this.userService.createUser();
+			await this.addProviderUser(registeredUser, providerUserId, providerType);
+			return registeredUser;
+		} catch (error) {
+			throw new Error(`User registration error: ${error}`);
+		}
+	}
+
+	private async addProviderUser(user: Partial<User>, providerUserId: string, providerType: Partial<ProviderType>) {
+		try {
+			return this.prismaService.provider.create({
 				data: {
 					userId: user.id,
-					providerToken: providerToken,
 					providerUserId: providerUserId,
 					providerTypeId: providerType.id,
 				},
@@ -254,7 +336,7 @@ export class AuthService {
 		}
 	}
 
-	async getUserIdFromYandex(token: string) {
+	private async getUserIdFromYandex(token: string) {
 		try {
 			const response = await axios.get<YandexUserResponseDto>(
 				'https://login.yandex.ru/info?format=json&oauth_token=' + token,
