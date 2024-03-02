@@ -18,10 +18,16 @@ import { UserService } from './user.service';
 @Controller('user')
 export class UserController {
 	constructor(private readonly userService: UserService) {}
+
+	@Get()
+	me(@CurrentUser() user: JwtPayload) {
+		return user;
+	}
+
 	@UseInterceptors(ClassSerializerInterceptor)
 	@Get(':id')
 	async findOneUser(@Param('id') id: string) {
-		const user = await this.userService.findOne(id);
+		const user = await this.userService.findByIdentifier(id);
 		return new UserResponse(user);
 	}
 
@@ -30,15 +36,10 @@ export class UserController {
 		return this.userService.delete(id, user);
 	}
 
-	@Get()
-	me(@CurrentUser() user: JwtPayload) {
-		return user;
-	}
-
 	@UseInterceptors(ClassSerializerInterceptor)
 	@Put()
 	async updateUser(@Body() body: Partial<User>) {
-		const user = await this.userService.save(body);
+		const user = await this.userService.update(body);
 		return new UserResponse(user);
 	}
 }

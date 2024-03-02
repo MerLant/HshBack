@@ -1,6 +1,6 @@
 import { HttpException, HttpStatus, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { ProviderType, Session, Token, User } from '@prisma/client';
+import { ProviderType, Session, Token, User, ProviderToken, Provider } from '@prisma/client';
 import { PrismaService } from '@prisma/prisma.service';
 import { UserService } from '@user/user.service';
 import { Tokens } from './interfaces';
@@ -31,12 +31,79 @@ export class AuthService {
 		private readonly jwtService: JwtService,
 		private readonly prismaService: PrismaService,
 		private readonly configService: ConfigService,
-	) {
+	) {}
+
+	/**
+	 * @namespace Auth
+	 */
+
+	/**
+	 * Аутентифицирует пользователя с использованием стороннего провайдера (например, Yandex).
+	 * @param user
+	 * @param {string} userAgent - User agent источника запроса.
+	 * @returns {Promise<Tokens>} Объект, содержащий токены доступа и обновления.
+	 */
+	async auth(user: User, userAgent: string): Promise<Tokens> {
+		return await this.generateTokens(user, userAgent);
 	}
 
 	/**
-	 * Генерирует токены доступа и обновления для пользователя.
+	 * Выполняет выход пользователя, удаляя связанные сессию, токен и providerToken.
 	 *
+	 * @param {string} refreshToken - Рефреш-токен, который используется для идентификации сессии.
+	 * @param {Response} res - Объект ответа Express, используемый для очистки куки.
+	 */
+	async logout(refreshToken: string, res: Response) {
+		// Очищаем куки.
+		await this.clearCookie(res);
+
+		try {
+			const token = await this.prismaService.token.findUnique({
+				where: {
+					token: refreshToken,
+				},
+				include: {
+					Session: true,
+				},
+			});
+
+			// Если токен или сессия не найдены, прекращаем выполнение функции.
+			if (!token || !token.Session) {
+				this.logger.error('Token or session not found.');
+				throw new HttpException('Logout failed: session or token not found.', HttpStatus.NOT_FOUND);
+			}
+
+			// Удаление ProviderToken, если он связан с сессией.
+			if (token.Session.providerTokenId) {
+				await this.prismaService.providerToken.delete({
+					where: {
+						id: token.Session.providerTokenId,
+					},
+				});
+			}
+
+			// Удаление сессии.
+			await this.prismaService.session.delete({
+				where: {
+					id: token.Session.id,
+				},
+			});
+
+			await this.deleteRefreshToken(token.id);
+
+			return res.sendStatus(HttpStatus.OK);
+		} catch (error) {
+			this.logger.error('Error during logout:', error);
+			throw new HttpException('Logout failed due to an internal error.', HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+	}
+
+	/**
+	 * @namespace Токены
+	 */
+
+	/**
+	 * Генерирует токены доступа и обновления для пользователя.
 	 * @param {User} user - Пользователь, для которого генерируются токены.
 	 * @param {string} userAgent - User agent источника запроса.
 	 * @returns {Promise<Tokens>} Объект, содержащий новые токены доступа и обновления.
@@ -44,19 +111,16 @@ export class AuthService {
 	private async generateTokens(user: User, userAgent: string): Promise<Tokens> {
 		const accessToken = 'Bearer ' + this.jwtService.sign({ id: user.id });
 
-		// Создаем новый рефреш-токен.
-		const refreshTokenObject = await this.createRefreshToken(user.id, userAgent);
+		const refreshTokenObject: Token = await this.createRefreshToken(user.id, userAgent);
 
-		// Возвращаем объект, содержащий все необходимые данные о токенах.
 		return {
 			accessToken,
-			refreshToken: refreshTokenObject, // Теперь возвращаем весь объект рефреш-токена.
+			refreshToken: refreshTokenObject,
 		};
 	}
 
 	/**
 	 * Создает новый рефреш-токен в базе данных.
-	 *
 	 * @param {string} userId - Идентификатор пользователя.
 	 * @param {string} userAgent - User agent источника запроса.
 	 * @returns {Promise<Token>} Объект нового рефреш-токена.
@@ -74,13 +138,18 @@ export class AuthService {
 
 	/**
 	 * Обновляет токены доступа и обновления на основе предоставленного рефреш-токена.
-	 *
 	 * @param {string} refreshToken - Рефреш-токен, используемый для обновления.
 	 * @param {string} userAgent - User agent источника запроса.
 	 * @returns {Promise<Tokens>} Объект, содержащий новые токены доступа и обновления.
 	 * @throws {UnauthorizedException} Если рефреш-токен недействителен или истек.
 	 */
 	async refreshTokens(refreshToken: string, userAgent: string): Promise<Tokens> {
+		const user = await this.getUserByRefreshToken(refreshToken);
+
+		if (!user) {
+			throw new UnauthorizedException();
+		}
+
 		const oldToken = await this.getRefreshToken(refreshToken);
 
 		if (!oldToken || new Date(oldToken.exp) < new Date() || oldToken.userAgent !== userAgent) {
@@ -90,33 +159,88 @@ export class AuthService {
 			throw new UnauthorizedException();
 		}
 
-		// Генерируем новые токены и создаем новый рефреш-токен в базе данных
-		const tokens = await this.generateTokens(oldToken.user, userAgent);
-		const newRefreshToken = await this.generateRefreshToken(tokens.refreshToken, oldToken.user.id, userAgent);
+		// Генерируем новые токены и создаем новый рефреш-токен
+		const tokens = await this.generateTokens(user, userAgent);
+		const newRefreshToken = await this.createRefreshToken(user.id, userAgent);
 
-		// Обновляем refreshTokenId в ProviderToken, прежде чем удалять старый рефреш-токен
+		// Обновляем refreshTokenId в Session, используя новый рефреш-токен
 		await this.updateSessionRefreshTokenId(oldToken.id, newRefreshToken.id);
 
-		// После обновления связанных записей удаляем старый рефреш-токен
+		// Удаляем старый рефреш-токен
 		await this.deleteRefreshToken(oldToken.token);
 
 		return tokens;
 	}
 
 	/**
-	 * Обновляет refreshTokenId для связанного ProviderToken.
+	 * Ищет и возвращает объект рефреш-токена из базы данных.
 	 *
-	 * @param {string} oldRefreshTokenId - ID старого рефреш-токена.
-	 * @param {string} newRefreshTokenId - ID нового рефреш-токена.
+	 * @param {string} refreshToken - Рефреш-токен, который нужно найти.
+	 * @returns {Promise<Token | null>} Объект рефреш-токена, если токен найден; иначе null.
 	 */
+	private async getRefreshToken(refreshToken: string): Promise<Token | null> {
+		return this.prismaService.token.findUnique({
+			where: {
+				token: refreshToken,
+			},
+		});
+	}
+
+	/**
+	 * Удаляет рефреш-токен из базы данных.
+	 * @param {string} refreshToken - Токен, который необходимо удалить.
+	 * @returns {Promise} - Промис без возвращаемого значения после выполнения удаления.
+	 */
+	async deleteRefreshToken(refreshToken: string): Promise<any> {
+		return this.prismaService.token.delete({ where: { token: refreshToken } });
+	}
+
+	/**
+	 * @namespace Cookie
+	 */
+
+	/**
+	 * Устанавливает куки с рефреш-токеном и, опционально, отправляет токен доступа в теле ответа.
+	 * @param {Tokens} tokens - Объект токенов, содержащий рефреш-токен и токен доступа.
+	 * @param {Response} res - Объект ответа Express.
+	 * @param {boolean} [noBody=false] - Флаг, определяющий, следует ли включать токен доступа в тело ответа.
+	 */
+	async setRefreshTokenToCookies(tokens: Tokens, res: Response, noBody: boolean = false) {
+		res.cookie(REFRESH_TOKEN, tokens.refreshToken.token, {
+			httpOnly: true,
+			sameSite: 'lax',
+			expires: new Date(tokens.refreshToken.exp),
+			secure: this.configService.get('NODE_ENV', 'development') === 'production',
+			path: '/',
+		});
+
+		if (!noBody) {
+			res.status(HttpStatus.CREATED).json({ accessToken: tokens.accessToken });
+		}
+	}
+
+	/**
+	 * Очищает куки, удаляя рефреш-токен.
+	 * @param {Response} res - Объект ответа Express, который будет использоваться для удаления куки.
+	 */
+	async clearCookie(res: Response) {
+		res.cookie(REFRESH_TOKEN, '', {
+			httpOnly: true,
+			secure: this.configService.get('NODE_ENV', 'development') === 'production',
+			expires: new Date(),
+		});
+	}
+
+	/**
+	 * @namespace Сессии
+	 */
+
 	/**
 	 * Обновляет refreshTokenId для сессии пользователя.
-	 *
 	 * @param {string} oldRefreshTokenId - ID старого рефреш-токена.
 	 * @param {string} newRefreshTokenId - ID нового рефреш-токена.
-	 * @returns {Promise<void>}
 	 */
-	async updateSessionRefreshTokenId(oldRefreshTokenId: string, newRefreshTokenId: string): Promise<void> {
+	async updateSessionRefreshTokenId(oldRefreshTokenId: string, newRefreshTokenId: string) {
 		// Находим сессию, связанную со старым рефреш-токеном.
 		const session = await this.prismaService.session.findFirst({
 			where: {
@@ -138,31 +262,108 @@ export class AuthService {
 	}
 
 	/**
-	 * Генерирует рефреш-токен в базе данных.
+	 * Получает сессию по уникальному идентификатору сессии.
 	 *
-	 * @param {Token} refreshToken - Новый рефреш-токен.
-	 * @param {string} userId - Идентификатор пользователя.
-	 * @param {string} userAgent - User agent источника запроса.
+	 * @param {string} sessionId - Уникальный идентификатор сессии.
+	 * @returns {Promise<Session | null>} Объект сессии или null, если сессия не найдена.
 	 */
-	private async generateRefreshToken(refreshToken: Token, userId: string, userAgent: string) {
-		return this.prismaService.token.create({
-			data: {
-				token: refreshToken.token,
-				userId: userId,
-				userAgent: userAgent,
-				exp: refreshToken.exp,
+	private async getSessionById(sessionId: string): Promise<Session | null> {
+		return this.prismaService.session.findUnique({
+			where: {
+				id: sessionId,
 			},
 		});
 	}
 
 	/**
-	 * Ищет и возвращает объект рефреш-токена из базы данных.
+	 * Получает сессию по уникальному идентификатору рефреш-токена.
 	 *
-	 * @param {string} refreshToken - Рефреш-токен, который нужно найти.
-	 * @returns {Promise<Token, User>} Объект рефреш-токена и юзера, если токен не найден.
+	 * @param {string} refreshTokenId - Уникальный идентификатор рефреш-токена.
+	 * @returns {Promise<Session | null>} Объект сессии или null, если сессия не найдена.
 	 */
-	private async getRefreshToken(refreshToken: string) {
-		return this.prismaService.token.findUnique({
+	private async getSessionByRefreshTokenId(refreshTokenId: string) {
+		return this.prismaService.session.findUnique({
+			where: {
+				refreshTokenId: refreshTokenId,
+			},
+		});
+	}
+
+	/**
+	 * Получает сессию по уникальному идентификатору токена провайдера.
+	 *
+	 * @param {string} providerTokenId - Уникальный идентификатор токена провайдера.
+	 * @returns {Promise<Session | null>} Объект сессии или null, если сессия не найдена.
+	 */
+	private async getSessionByProviderTokenId(providerTokenId: string): Promise<Session | null> {
+		return this.prismaService.session.findUnique({
+			where: {
+				providerTokenId: providerTokenId,
+			},
+		});
+	}
+
+	/**
+	 * Создает новую сессию пользователя в базе данных.
+	 *
+	 * @param {string} providerTokenId - Идентификатор токена провайдера, связанный с создаваемой сессией.
+	 * @param {string} refreshTokenId - Идентификатор рефреш-токена, связанный с создаваемой сессией.
+	 * @returns {Promise<Session>} - Промис, возвращающий объект созданной сессии.
+	 * @throws {HttpException} - Исключение, выбрасываемое в случае ошибки при создании сессии.
+	 */
+	private async createSession(providerTokenId: string, refreshTokenId: string): Promise<Session> {
+		try {
+			return await this.prismaService.session.create({
+				data: {
+					providerTokenId: providerTokenId,
+					refreshTokenId: refreshTokenId,
+				},
+			});
+		} catch (error) {
+			this.logger.error('Error creating session:', error);
+			throw new HttpException('Error creating session', HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+	}
+
+	/**
+	 * Удаляет сессию пользователя по её идентификатору.
+	 *
+	 * @param {string} sessionId - Идентификатор сессии для удаления.
+	 * @returns {Promise<void>} - Промис без возвращаемого значения, который разрешается при успешном удалении сессии.
+	 * @throws {HttpException} - Исключение, если сессия не найдена или произошла ошибка при удалении.
+	 */
+	async deleteSessionById(sessionId: string): Promise<void> {
+		try {
+			// Проверяем наличие сессии перед удалением.
+			const session = await this.prismaService.session.findUnique({
+				where: { id: sessionId },
+			});
+
+			if (!session) {
+				this.logger.error('Session not found:', sessionId);
+				throw new HttpException('Session not found', HttpStatus.NOT_FOUND);
+			}
+
+			await this.prismaService.session.delete({
+				where: { id: sessionId },
+			});
+		} catch (error) {
+			this.logger.error('Error deleting session:', sessionId, error);
+			throw new HttpException('Error deleting session', HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+	}
+
+	/**
+	 * @namespace Пользователи
+	 */
+
+	/**
+	 * Ищет и возвращает пользователя, связанного с рефреш-токеном.
+	 * @param {string} refreshToken - Рефреш-токен, по которому нужно найти пользователя.
+	 * @returns {Promise<User | null>} Объект пользователя, если он найден; иначе null.
+	 */
+	private async getUserByRefreshToken(refreshToken: string): Promise<User | null> {
+		const token = await this.prismaService.token.findUnique({
 			where: {
 				token: refreshToken,
 			},
@@ -170,103 +371,42 @@ export class AuthService {
 				user: true,
 			},
 		});
-	}
 
-	async logout(refreshToken: string, res: Response) {
-		if (refreshToken === '') {
-			return res.sendStatus(HttpStatus.OK);
-		}
-		const logoutUser = this.prismaService.token.findFirst({
-			where: {
-				token: refreshToken,
-			},
-			include: {
-				user: true,
-			},
-		});
-
-		if (!logoutUser) {
-		}
-	}
-
-	async clearCookie(res: Response) {
-		res.cookie(REFRESH_TOKEN, '', { httpOnly: true, secure: true, expires: new Date() });
+		return token ? token.user : null;
 	}
 
 	/**
-	 * Deletes a refresh token from the database.
-	 * @param {string} refreshToken - The refresh token to delete.
-	 * @returns {Promise<Token>} The deleted token (for logging purposes).
+	 * Регистрирует нового пользователя и ассоциирует его с конкретным провайдером и типом провайдера.
+	 * Эта функция сначала создаёт пользователя через сервис UserService, а затем связывает его с провайдером.
+	 *
+	 * @param {string} providerToken - Токен, идентифицирующий пользователя у провайдера.
+	 * @param {string} providerUserId - Уникальный идентификатор пользователя у провайдера.
+	 * @param {Partial<ProviderType>} providerType - Частичный объект типа провайдера, содержащий как минимум идентификатор типа.
+	 * @returns {Promise<User>} - Возвращает объект зарегистрированного пользователя.
+	 * @throws {Error} - Выбрасывает ошибку, если процесс регистрации пользователя не удался.
 	 */
-	async deleteRefreshToken(refreshToken: string): Promise<void> {
-		// Удаляем рефреш-токен из базы данных
-		await this.prismaService.token.delete({ where: { token: refreshToken } });
+	async registerUser(
+		providerToken: string,
+		providerUserId: string,
+		providerType: Partial<ProviderType>,
+	): Promise<User> {
+		try {
+			const registeredUser = await this.userService.createUser();
+			await this.addProviderUser(registeredUser, providerUserId, providerType);
+			return registeredUser;
+		} catch (error) {
+			throw new Error(`User registration error: ${error}`);
+		}
 	}
 
 	/**
-	 * Handles authentication using a third-party provider (e.g., Yandex).
-	 * @param user
-	 * @param {string} userAgent - The user agent making the request.
-	 * @param session
-	 * @returns {Promise<Tokens>} An object containing the access and refresh tokens.
+	 * Получает пользователя по идентификатору провайдера и типу провайдера.
+	 * @param {string} providerUserId - Идентификатор пользователя у провайдера.
+	 * @param {ProviderType} providerType - Тип провайдера.
+	 * @returns {Promise<User>} - Объект пользователя.
+	 * @throws {HttpException} - Исключение, если не удалось получить пользователя.
 	 */
-	async auth(user: User, userAgent: string, session: Partial<Session>): Promise<Tokens> {
-		return await this.generateTokens(user, userAgent);
-	}
-
-
-	async authYandexUser(yandexToken: string, userAgent: string) {
-
-		if () {
-
-		}
-
-		const yandexUserId = await this.getUserIdFromYandex(yandexToken);
-		const yandexProvider = await this.prismaService.providerType.findFirst({
-			where: {
-				name: 'YANDEX',
-			},
-		});
-
-		let user: User | undefined;
-		if (await this.isRegistered(yandexUserId, yandexProvider)) {
-			user = await this.getUser(yandexUserId, yandexProvider);
-		} else {
-			user = await this.registerUser(yandexToken, yandexUserId, yandexProvider);
-		}
-
-		if (!user) {
-			this.logger.error('Authorization error via Yandex');
-			throw new HttpException('Authorization error via Yandex', HttpStatus.INTERNAL_SERVER_ERROR);
-		}
-
-		const await;
-		this.createProviderToken(yandexToken, yandexUserId, yandexProvider);
-
-
-		return await this.auth(user, userAgent);
-	}
-
-	private async createProviderToken(providerToken: string, providerUser: string, providerType: Partial<ProviderType>) {
-
-	}
-
-	private async createSession(providerTokenId: number, tokenId: number) {
-
-	}
-
-	private async isRegistered(providerUserId: string, providerType: ProviderType): Promise<boolean> {
-		const existingProvider = await this.prismaService.provider.findFirst({
-			where: {
-				providerUserId: providerUserId,
-				providerTypeId: providerType.id,
-			},
-		});
-
-		return !!existingProvider;
-	}
-
-	private async getUser(providerUserId: string, providerType: ProviderType) {
+	private async getUser(providerUserId: string, providerType: ProviderType): Promise<User> {
 		try {
 			// Извлекаем пользователя напрямую через связь в provider
 			const userProvider = await this.prismaService.provider.findFirst({
@@ -286,57 +426,81 @@ export class AuthService {
 		}
 	}
 
-	private async checkProviderToken(providerToken: string) {
-		try {
-			const checkedToken = this.prismaService.providerToken();
-		} catch (error) {
-
-		}
-	}
-
-	private async addProviderToken() {
-	}
-
-	async registerUser(providerToken: string, providerUserId: string, providerType: Partial<ProviderType>) {
-		try {
-			const registeredUser = await this.userService.createUser();
-			await this.addProviderUser(registeredUser, providerUserId, providerType);
-			return registeredUser;
-		} catch (error) {
-			throw new Error(`User registration error: ${error}`);
-		}
-	}
-
-	private async addProviderUser(user: Partial<User>, providerUserId: string, providerType: Partial<ProviderType>) {
-		try {
-			return this.prismaService.provider.create({
-				data: {
-					userId: user.id,
-					providerUserId: providerUserId,
-					providerTypeId: providerType.id,
-				},
-			});
-		} catch (error) {
-			this.logger.error('Error adding a new provider to the user:', error);
-			throw new HttpException('Error adding a new provider to the user', HttpStatus.INTERNAL_SERVER_ERROR);
-		}
-	}
-
-	async setRefreshTokenToCookies(tokens: Tokens, res: Response, noBody: boolean = false) {
-		res.cookie(REFRESH_TOKEN, tokens.refreshToken.token, {
-			httpOnly: true,
-			sameSite: 'lax',
-			expires: new Date(tokens.refreshToken.exp),
-			secure: this.configService.get('NODE_ENV', 'development') === 'production',
-			path: '/',
+	/**
+	 * Проверяет, зарегистрирован ли пользователь с данным идентификатором у провайдера.
+	 * @param {string} providerUserId - Идентификатор пользователя у провайдера.
+	 * @param {ProviderType} providerType - Тип провайдера.
+	 * @returns {Promise<boolean>} - Возвращает true, если пользователь зарегистрирован.
+	 */
+	private async isRegistered(providerUserId: string, providerType: ProviderType): Promise<boolean> {
+		const existingProvider = await this.prismaService.provider.findFirst({
+			where: {
+				providerUserId: providerUserId,
+				providerTypeId: providerType.id,
+			},
 		});
 
-		if (!noBody) {
-			res.status(HttpStatus.CREATED).json({ accessToken: tokens.accessToken });
-		}
+		return !!existingProvider;
 	}
 
-	private async getUserIdFromYandex(token: string) {
+	/**
+	 * @namespace Yandex Аутентификация
+	 */
+
+	/**
+	 * Аутентифицирует пользователя через Yandex.
+	 * @param {string} yandexToken - Токен Yandex.
+	 * @param {string} userAgent - User agent источника запроса.
+	 * @returns {Promise<Tokens>} Объект, содержащий токены доступа и обновления.
+	 */
+	async authYandexUser(yandexToken: string, userAgent: string): Promise<Tokens> {
+		const yandexUserId = await this.getUserIdFromYandex(yandexToken);
+		const yandexProvider = await this.prismaService.providerType.findFirst({
+			where: {
+				name: 'YANDEX',
+			},
+		});
+
+		let user: User | undefined;
+		if (await this.isRegistered(yandexUserId, yandexProvider)) {
+			user = await this.getUser(yandexUserId, yandexProvider);
+		} else {
+			user = await this.registerUser(yandexToken, yandexUserId, yandexProvider);
+		}
+
+		if (!user) {
+			this.logger.error('Authorization error via Yandex');
+			throw new HttpException('Authorization error via Yandex', HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+
+		const provider: Provider | null = await this.getProvider(user, yandexProvider);
+		if (!provider) {
+			this.logger.error('The provider is null, where it cannot be');
+			throw new HttpException('The provider is null, where it cannot be', HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+
+		let providerToken: ProviderToken | null = await this.checkProviderToken(yandexToken);
+		if (!providerToken) {
+			providerToken = await this.createProviderToken(yandexToken, provider, yandexProvider);
+		}
+
+		const { refreshToken, accessToken } = await this.auth(user, userAgent);
+
+		if (!(await this.getSessionByProviderTokenId(providerToken.id))) {
+			await this.createSession(providerToken.id, refreshToken.id);
+		}
+
+		// Возвращаем токены
+		return { accessToken, refreshToken };
+	}
+
+	/**
+	 * Получает идентификатор пользователя от Яндекса.
+	 * @param {string} token - OAuth-токен для доступа к данным Яндекса.
+	 * @returns {Promise<string>} - Идентификатор пользователя Яндекса.
+	 * @throws {HttpException} - Исключение, если не удалось получить данные.
+	 */
+	private async getUserIdFromYandex(token: string): Promise<string> {
 		try {
 			const response = await axios.get<YandexUserResponseDto>(
 				'https://login.yandex.ru/info?format=json&oauth_token=' + token,
@@ -350,6 +514,106 @@ export class AuthService {
 			this.logger.error('Failed to get user info from Yandex:', error);
 
 			throw new HttpException(`Failed to get user info from Yandex`, HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+	}
+
+	/**
+	 * @namespace Provider
+	 */
+
+	/**
+	 * Ищет и возвращает первую найденную запись провайдера на основе идентификатора пользователя и типа провайдера.
+	 * @param {Partial<User>} user - Объект пользователя, содержащий по крайней мере идентификатор пользователя.
+	 * @param {Partial<ProviderType>} providerType - Объект типа провайдера, содержащий по крайней мере идентификатор типа провайдера.
+	 * @returns {Promise<Provider | null>} - Возвращает объект провайдера, если таковой найден, иначе null.
+	 * @throws {HttpException} - Исключение выбрасывается, если возникает ошибка при поиске провайдера.
+	 */
+	private async getProvider(user: Partial<User>, providerType: Partial<ProviderType>): Promise<Provider | null> {
+		try {
+			return this.prismaService.provider.findFirst({
+				where: {
+					userId: user.id,
+					providerTypeId: providerType.id,
+				},
+			});
+		} catch (error) {
+			this.logger.error('User provider get error:', error);
+			throw new HttpException('User provider get error:', HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+	}
+
+	/**
+	 * Создает токен провайдера.
+	 * @param {string} providerToken - Токен провайдера.
+	 * @param {Partial<Provider>} provider - Объект провайдера.
+	 * @param {Partial<ProviderType>} providerType - Тип провайдера.
+	 * @returns {Promise<ProviderToken>} - Созданный токен провайдера.
+	 * @throws {Error} - Ошибка, если не удалось создать токен провайдера.
+	 */
+	private async createProviderToken(
+		providerToken: string,
+		provider: Partial<Provider>,
+		providerType: Partial<ProviderType>,
+	): Promise<ProviderToken> {
+		try {
+			return this.prismaService.providerToken.create({
+				data: {
+					providerToken: providerToken,
+					providerId: provider.id,
+					providerTypeId: providerType.id,
+				},
+			});
+		} catch (error) {
+			throw new Error(`User created check error: ${error}`);
+		}
+	}
+
+	/**
+	 * Проверяет наличие токена провайдера в базе данных.
+	 * @param {string} providerToken - Токен провайдера для проверки.
+	 * @returns {Promise<ProviderToken | null>} - Возвращает объект токена провайдера, если он найден, или null, если такого токена нет.
+	 * @throws {HttpException} - Исключение, если произошла ошибка при получении токена из базы данных.
+	 */
+	private async checkProviderToken(providerToken: string): Promise<ProviderToken | null> {
+		try {
+			return this.prismaService.providerToken.findFirst({
+				where: {
+					providerToken: providerToken,
+				},
+			});
+		} catch (error) {
+			this.logger.error('Token receipt error:', error);
+			throw new HttpException('Token receipt error', HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+	}
+
+	// eslint-disable-next-line @typescript-eslint/no-empty-function
+	private async addProviderToken() {}
+
+	/**
+	 * Добавляет запись провайдера пользователю.
+	 * @param {Partial<User>} user - Пользователь, которому нужно добавить провайдера.
+	 * @param {string} providerUserId - Идентификатор пользователя у провайдера.
+	 * @param {Partial<ProviderType>} providerType - Тип провайдера.
+	 * @returns {Promise<Provider>} - Объект провайдера.
+	 * @throws {HttpException} - Исключение, если не удалось добавить провайдера.
+	 */
+	private async addProviderUser(
+		user: Partial<User>,
+		providerUserId: string,
+		providerType: Partial<ProviderType>,
+	): Promise<Provider> {
+		try {
+			return this.prismaService.provider.create({
+				data: {
+					userId: user.id,
+					providerUserId: providerUserId,
+					providerTypeId: providerType.id,
+				},
+			});
+		} catch (error) {
+			this.logger.error('Error adding a new provider to the user:', error);
+			throw new HttpException('Error adding a new provider to the user', HttpStatus.INTERNAL_SERVER_ERROR);
 		}
 	}
 }

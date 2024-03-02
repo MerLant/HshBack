@@ -9,9 +9,10 @@ export class UserResponse implements User {
 	@Exclude()
 	createdAt: Date;
 
+	@Exclude()
 	updatedAt: Date;
 
-	// Исправлено название свойства с rolesId на roleId
+	@Exclude()
 	roleId: number;
 
 	@Exclude()

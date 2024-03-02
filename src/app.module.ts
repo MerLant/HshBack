@@ -6,13 +6,25 @@ import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { UserModule } from './user/user.module';
 import { CheckModule } from './check/check.module';
-
 import { PrismaService } from '@prisma/prisma.service';
+import { ThrottlerModule } from '@nestjs/throttler';
 
 const providersToCreate = ['YANDEX'];
 
 @Module({
-	imports: [UserModule, PrismaModule, AuthModule, ConfigModule.forRoot({ isGlobal: true }), CheckModule],
+	imports: [
+		UserModule,
+		PrismaModule,
+		AuthModule,
+		ConfigModule.forRoot({ isGlobal: true }),
+		CheckModule,
+		ThrottlerModule.forRoot([
+			{
+				ttl: 60000,
+				limit: 100,
+			},
+		]),
+	],
 	providers: [
 		{
 			provide: APP_GUARD,

@@ -21,11 +21,6 @@ export class AuthController {
 	@Get('logout')
 	async logout(@Cookie(REFRESH_TOKEN) refreshToken: string, @Res() res: Response) {
 		await this.authService.logout(refreshToken, res);
-		if (refreshToken) {
-			await this.authService.deleteRefreshToken(refreshToken);
-		}
-
-		res.sendStatus(HttpStatus.OK);
 	}
 
 	@Get('refresh-tokens')
@@ -51,7 +46,7 @@ export class AuthController {
 
 			const tokens = await this.authService.authYandexUser(token, req.headers['user-agent']);
 
-			await this.authService.setRefreshTokenToCookies(tokens, res);
+			await this.authService.setRefreshTokenToCookies(tokens, res, true);
 
 			res.redirect(this.configService.get('FRONTEND_URL'));
 		} catch (error) {

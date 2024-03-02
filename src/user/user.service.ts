@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@prisma/prisma.service';
 import { Cache } from 'cache-manager';
 import { Provider, ProviderType, User } from '@prisma/client';
+import { isUUID } from 'class-validator';
 
 @Injectable()
 export class UserService {
@@ -30,64 +31,58 @@ export class UserService {
 	}
 
 	/**
-	 * Saves a user to the database and cache.
-	 * @param {Partial<User>} user The user data to save.
-	 * @param providerType
-	 * @returns {Promise<User>} The saved user.
-	 * @throws {HttpException} If an error occurs while saving the user.
+	 * Обновляет данные пользователя в базе данных.
+	 *
+	 * @param {Partial<User>} user - Объект пользователя с обновленными данными.
+	 * @returns {Promise<User>} - Возвращает обновленный объект пользователя.
+	 * @throws {HttpException} - В случае ошибки при сохранении пользователя генерируется исключение.
 	 */
-	async save(user: Partial<User>, providerType: ProviderType): Promise<User> {
+	async update(user: Partial<User>): Promise<User> {
 		try {
-			const savedUser = await this.prismaService.user.upsert({
-				where: {
-					email: user.email.toLowerCase(),
-				},
-				update: {
-					provider: user.provider,
-					roles: user.roles,
+			// Проверка существования пользователя перед обновлением
+			const existingUser = await this.prismaService.user.findUnique({
+				where: { id: user.id },
+			});
+
+			if (!existingUser) {
+				throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+			}
+
+			// Обновление пользователя
+			const updatedUser = await this.prismaService.user.update({
+				where: { id: user.id },
+				data: {
+					nickName: user.nickName,
+					displayName: user.displayName,
 					isBlocked: user.isBlocked,
-				},
-				create: {
-					provider: user.provider,
-					roles: ['USER'],
+					roleId: user.roleId,
 				},
 			});
-			await this.cacheManager.set(savedUser.id.toLowerCase(), savedUser);
 
-			return savedUser;
+			return updatedUser;
 		} catch (error) {
-			throw new HttpException('Error saving user', HttpStatus.BAD_REQUEST);
+			throw new HttpException('Error updating user: ' + error.message, HttpStatus.BAD_REQUEST);
 		}
 	}
 
-	/**
-	 * Finds a user by ID or email.
-	 * @param {string} idOrEmail The ID or email of the user to find.
-	 * @param {boolean} [isReset=false] Whether to reset the cache for the user.
-	 * @returns {Promise<User | null>} The found user, or null if not found.
-	 */
-	async findOne(idOrEmail: string, isReset: boolean = false): Promise<User | null> {
-		if (isReset) {
-			await Promise.all([this.cacheManager.del(idOrEmail), this.cacheManager.del(idOrEmail.toLowerCase())]);
-		}
-
-		const cachedUser = await this.cacheManager.get<User>(idOrEmail.toLowerCase());
+	async findByIdentifier(identifier: string) {
+		const cacheKey = `user:${identifier}`;
+		// Проверяем, есть ли пользователь в кэше
+		const cachedUser = await this.cacheManager.get(cacheKey);
 		if (cachedUser) {
 			return cachedUser;
 		}
 
-		const user = await this.prismaService.user.findFirst({
-			where: {
-				OR: [{ id: idOrEmail.toLowerCase() }, { email: idOrEmail.toLowerCase() }],
-			},
-		});
+		let user;
+		if (isUUID(identifier)) {
+			user = await this.prismaService.user.findUnique({ where: { id: identifier } });
+		} else {
+			user = await this.prismaService.user.findUnique({ where: { nickName: identifier } });
+		}
 
+		// Сохраняем пользователя в кэше, если он найден
 		if (user) {
-			await this.cacheManager.set(
-				user.id.toLowerCase(),
-				user,
-				convertToSecondsUtil(this.configService.get('JWT_EXP')),
-			);
+			await this.cacheManager.set(cacheKey, user, 3600);
 		}
 
 		return user;
@@ -100,11 +95,11 @@ export class UserService {
 	 * @returns {Promise<{id: string}>} The deleted user.
 	 * @throws {ForbiddenException} If the user is not authorized to delete the user.
 	 */
-	async delete(id: string, user: JwtPayload): Promise<{ id: string }> {
-		if (user.id !== id && !user.roles.includes(Role.ADMIN)) {
-			throw new ForbiddenException();
-		}
-		await Promise.all([this.cacheManager.del(id), this.cacheManager.del(user.email.toLowerCase())]);
-		return this.prismaService.user.delete({ where: { id }, select: { id: true } });
+	async delete(id: string, user: JwtPayload) {
+		// if (user.id !== id && !user.roles.includes(Role.ADMIN)) {
+		// 	throw new ForbiddenException();
+		// }
+		// await Promise.all([this.cacheManager.del(id), this.cacheManager.del(user.email.toLowerCase())]);
+		// return this.prismaService.user.delete({ where: { id }, select: { id: true } });
 	}
 }
