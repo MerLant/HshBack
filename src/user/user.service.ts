@@ -1,12 +1,13 @@
 import { JwtPayload } from '@auth/interfaces';
-import { convertToSecondsUtil } from '@common/utils';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { ForbiddenException, HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@prisma/prisma.service';
 import { Cache } from 'cache-manager';
-import { Provider, ProviderType, User } from '@prisma/client';
+import { User } from '@prisma/client';
 import { isUUID } from 'class-validator';
+import { Role } from '@user/enum/role';
+import { RoleService } from './role/role.service';
 
 @Injectable()
 export class UserService {
@@ -15,16 +16,23 @@ export class UserService {
 	 * @param {PrismaService} prismaService The Prisma service for interacting with the database.
 	 * @param {Cache} cacheManager The cache manager for storing user data.
 	 * @param {ConfigService} configService The configuration service for accessing application settings.
+	 * @param roleService
 	 */
 	constructor(
 		private readonly prismaService: PrismaService,
 		@Inject(CACHE_MANAGER) private cacheManager: Cache,
 		private readonly configService: ConfigService,
+		private roleService: RoleService,
 	) {}
 
-	async createUser() {
+	async createUser(userRole: Role = Role.USER) {
+		const roleId = await this.roleService.getRoleByName(userRole);
 		try {
-			return await this.prismaService.user.create({ data: {} });
+			return await this.prismaService.user.create({
+				data: {
+					roleId: roleId.id,
+				},
+			});
 		} catch (error) {
 			throw new Error(`User creation error: ${error}`);
 		}
@@ -89,17 +97,24 @@ export class UserService {
 	}
 
 	/**
-	 * Deletes a user from the database and cache.
-	 * @param {string} id The ID of the user to delete.
-	 * @param {JwtPayload} user The authenticated user making the request.
-	 * @returns {Promise<{id: string}>} The deleted user.
-	 * @throws {ForbiddenException} If the user is not authorized to delete the user.
+	 * Удаляет пользователя из базы данных.
+	 *
+	 * @param {string} deletedUser - Идентификатор пользователя, которого нужно удалить.
+	 * @param {JwtPayload} user - Данные пользователя, выполняющего запрос.
+	 * @returns {Promise<{id: string}>} - Возвращает объект с идентификатором удаленного пользователя.
+	 * @throws {ForbiddenException} - Выбрасывает исключение, если пользователь не имеет права на удаление.
 	 */
-	async delete(id: string, user: JwtPayload) {
-		// if (user.id !== id && !user.roles.includes(Role.ADMIN)) {
-		// 	throw new ForbiddenException();
-		// }
-		// await Promise.all([this.cacheManager.del(id), this.cacheManager.del(user.email.toLowerCase())]);
-		// return this.prismaService.user.delete({ where: { id }, select: { id: true } });
+	async delete(deletedUser: string, user: JwtPayload): Promise<{ id: string }> {
+		const senderRole = await this.roleService.getUserRoleById(user.id);
+
+		if (user.id !== deletedUser && senderRole.name !== 'ADMIN') {
+			throw new ForbiddenException('You do not have permission to delete this user.');
+		}
+
+		await Promise.all([this.cacheManager.del(deletedUser)]);
+
+		await this.prismaService.user.delete({ where: { id: deletedUser } });
+
+		return { id: deletedUser };
 	}
 }

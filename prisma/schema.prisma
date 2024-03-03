@@ -7,7 +7,6 @@ generator client {
     provider = "prisma-client-js"
 }
 
-// Модель пользователя с добавлением комментариев и индексов
 model User {
     id String @id @default(uuid())
 
@@ -32,7 +31,6 @@ model User {
     @@map("user")
 }
 
-// Модель токена с указанием индекса для поиска
 model Token {
     id String @id @default(uuid())
 
@@ -48,33 +46,17 @@ model Token {
     @@map("token")
 }
 
-// Обновление полей согласно согласованности именования и добавление комментариев
-model Task {
-    id Int @id @default(autoincrement())
+model TaskTest {
+    id     String @id @default(uuid())
+    taskId Int
+    input  String
+    output String
 
-    name        String
-    description String?
+    Task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
-    input  Json
-    output Json
-
-    runTimeout     Int
-    runMemoryLimit Int
-
-    compileTimeout     Int
-    compileMemoryLimit Int
-
-    themeId   Int
-    isDisable Boolean @default(false)
-
-    Theme Theme   @relation(fields: [themeId], references: [id], onDelete: Cascade)
-    Build Build[]
-
-    @@index([name, isDisable])
-    @@map("task")
+    @@map("task_test")
 }
 
-// Добавление комментариев к модели решения
 model Solution {
     id String @id @default(uuid())
 
@@ -88,12 +70,11 @@ model Solution {
     @@map("solution")
 }
 
-// Уточнение связей и индексация для Build
 model Build {
     id        String   @id @default(uuid())
     userId    String
     taskId    Int
-    userCode  String
+    userCode  String   @db.Text
     buildDate DateTime
     lang      String?
 
@@ -105,23 +86,23 @@ model Build {
     @@map("build")
 }
 
-// Пример документирования модели курса
 model Course {
     id          Int     @id @default(autoincrement())
     name        String
-    description String?
+    description String? @db.Text
+    isDisable   Boolean @default(false)
 
     Theme Theme[]
 
     @@map("course")
 }
 
-// Добавление индексов и комментариев для модели темы
 model Theme {
     id          Int     @id @default(autoincrement())
     name        String
-    description String?
+    description String? @db.Text
     courseId    Int
+    isDisable   Boolean @default(false)
 
     Course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
     Task   Task[]
@@ -130,7 +111,29 @@ model Theme {
     @@map("theme")
 }
 
-// Роли с индексом для улучшения поиска
+model Task {
+    id Int @id @default(autoincrement())
+
+    name        String
+    description String? @db.Text
+
+    runTimeout     Int
+    runMemoryLimit Int
+
+    compileTimeout     Int
+    compileMemoryLimit Int
+
+    themeId   Int
+    isDisable Boolean @default(false)
+
+    Theme    Theme      @relation(fields: [themeId], references: [id], onDelete: Cascade)
+    Build    Build[]
+    TaskTest TaskTest[]
+
+    @@index([name, isDisable])
+    @@map("task")
+}
+
 model Role {
     id   Int    @id @default(autoincrement())
     name String @unique
@@ -141,7 +144,6 @@ model Role {
     @@map("role")
 }
 
-// Обеспечение уникальности для Provider
 model Provider {
     id             Int    @id @default(autoincrement())
     userId         String
@@ -164,9 +166,10 @@ model ProviderToken {
 
     Provider Provider  @relation(fields: [providerId], references: [id])
     Session  Session[]
+
+    @@map("provider_token")
 }
 
-// Документация и индексация для ProviderType
 model ProviderType {
     id   Int    @id @default(autoincrement())
     name String @unique
@@ -187,7 +190,6 @@ model Session {
     @@map("session")
 }
 
-// Оптимизация связей для UserGroup
 model UserGroup {
     userId  String
     groupId Int
@@ -199,7 +201,6 @@ model UserGroup {
     @@map("users_group")
 }
 
-// Группы с индексацией для улучшения поиска
 model Group {
     id    Int    @id @default(autoincrement())
     name  String

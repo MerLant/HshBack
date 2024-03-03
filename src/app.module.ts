@@ -1,3 +1,7 @@
+/**
+ * Основной модуль приложения, который инициализирует и конфигурирует все необходимые модули и сервисы.
+ * @module AppModule
+ */
 import { JwtAuthGuard } from '@auth/guargs/jwt-auth.guard';
 import { Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
@@ -8,8 +12,9 @@ import { UserModule } from './user/user.module';
 import { CheckModule } from './check/check.module';
 import { PrismaService } from '@prisma/prisma.service';
 import { ThrottlerModule } from '@nestjs/throttler';
-
-const providersToCreate = ['YANDEX'];
+import { Role } from '@user/enum/role';
+import { ProviderTypes } from '@auth/enum/provider.types';
+import { LearningModule } from './learning/learning.module';
 
 @Module({
 	imports: [
@@ -24,6 +29,7 @@ const providersToCreate = ['YANDEX'];
 				limit: 100,
 			},
 		]),
+		LearningModule,
 	],
 	providers: [
 		{
@@ -35,32 +41,47 @@ const providersToCreate = ['YANDEX'];
 export class AppModule implements OnModuleInit {
 	constructor(private readonly prismaService: PrismaService) {}
 
+	/**
+	 * Инициализирует модуль, создавая необходимые типы провайдеров и роли при первом запуске.
+	 */
 	async onModuleInit(): Promise<void> {
 		await this.createProviderTypes();
+		await this.createRoles();
 	}
 
+	/**
+	 * Создает типы провайдеров, если они еще не существуют в базе данных.
+	 */
 	private async createProviderTypes(): Promise<void> {
-		const existingProviderTypes = await this.prismaService.providerType.findMany({
-			where: {
-				name: {
-					in: providersToCreate,
-				},
-			},
-		});
+		const providerTypeKeys = Object.values(ProviderTypes);
+		for (const providerTypeName of providerTypeKeys) {
+			const providerTypeExists = await this.prismaService.providerType.findUnique({
+				where: { name: providerTypeName },
+			});
 
-		const namesToCreate = providersToCreate.filter(
-			(name) => !existingProviderTypes.some((providerType) => providerType.name === name),
-		);
-
-		if (namesToCreate.length === 0) {
-			console.log('Все ProvidersType уже существуют');
-			return;
+			if (!providerTypeExists) {
+				await this.prismaService.providerType.create({
+					data: { name: providerTypeName },
+				});
+			}
 		}
+	}
 
-		await this.prismaService.providerType.createMany({
-			data: namesToCreate.map((name) => ({ name })),
-		});
+	/**
+	 * Создает роли в системе, если они еще не существуют.
+	 */
+	private async createRoles(): Promise<void> {
+		const roleKeys = Object.values(Role);
+		for (const roleName of roleKeys) {
+			const roleExists = await this.prismaService.role.findUnique({
+				where: { name: roleName },
+			});
 
-		console.log(`ProvidersType "${namesToCreate.join(', ')}" созданы`);
+			if (!roleExists) {
+				await this.prismaService.role.create({
+					data: { name: roleName },
+				});
+			}
+		}
 	}
 }
