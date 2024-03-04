@@ -6,7 +6,7 @@ import { PrismaService } from '@prisma/prisma.service';
 import { Cache } from 'cache-manager';
 import { User } from '@prisma/client';
 import { isUUID } from 'class-validator';
-import { Role } from '@user/enum/role';
+import { Role } from '@role/enum';
 import { RoleService } from './role/role.service';
 
 @Injectable()

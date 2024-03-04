@@ -1,17 +1,18 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { CourseService } from './course.service';
 import { CreateCourseDto, UpdateCourseDto } from './dto/';
-import { Role } from '@user/enum/role';
-import { Roles } from '@common/decorators';
+import { Role } from '@role/enum/role';
+import { CurrentUser, Roles } from '@common/decorators';
 import { RolesGuard } from '@auth/guargs/role.guard';
+import { JwtPayload } from '@auth/interfaces';
 
-@Controller('course')
+@Controller('learning/course')
 export class CourseController {
 	constructor(private readonly courseService: CourseService) {}
 
 	@Get()
-	findAll() {
-		return this.courseService.findAll();
+	findAll(@CurrentUser() user: JwtPayload) {
+		return this.courseService.findAll(user.id);
 	}
 
 	@Post()
@@ -22,15 +23,15 @@ export class CourseController {
 	}
 
 	@Get(':id')
-	findOne(@Param('id') id: string) {
+	findOne(@Param('id', ParseIntPipe) id: number) {
 		return this.courseService.findOne(+id);
 	}
 
 	@Put(':id')
 	@UseGuards(RolesGuard)
 	@Roles(Role.TEACHER, Role.ADMIN)
-	update(@Param('id') id: string, @Body() updateCourseDto: UpdateCourseDto) {
-		return this.courseService.update(+id, updateCourseDto);
+	update(@Param('id', ParseIntPipe) id: number, @Body() updateCourse: UpdateCourseDto) {
+		return this.courseService.update(id, updateCourse);
 	}
 
 	@Delete(':id')

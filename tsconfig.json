@@ -41,6 +41,12 @@
       ],
       "@auth/*": [
         "src/auth/*"
+      ],
+      "@role": [
+        "src/user/role"
+      ],
+      "@role/*": [
+        "src/user/role/*"
       ]
     }
   }

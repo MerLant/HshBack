@@ -161,10 +161,9 @@ export class AuthService {
 
 		// Генерируем новые токены и создаем новый рефреш-токен
 		const tokens = await this.generateTokens(user, userAgent);
-		const newRefreshToken = await this.createRefreshToken(user.id, userAgent);
 
 		// Обновляем refreshTokenId в Session, используя новый рефреш-токен
-		await this.updateSessionRefreshTokenId(oldToken.id, newRefreshToken.id);
+		await this.updateSessionRefreshTokenId(oldToken.id, tokens.refreshToken.id);
 
 		// Удаляем старый рефреш-токен
 		await this.deleteRefreshToken(oldToken.token);

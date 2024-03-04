@@ -3,7 +3,7 @@
  * @module AppModule
  */
 import { JwtAuthGuard } from '@auth/guargs/jwt-auth.guard';
-import { Module, OnModuleInit } from '@nestjs/common';
+import { MiddlewareConsumer, Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './auth/auth.module';
@@ -12,9 +12,10 @@ import { UserModule } from './user/user.module';
 import { CheckModule } from './check/check.module';
 import { PrismaService } from '@prisma/prisma.service';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { Role } from '@user/enum/role';
+import { Role } from '@role/enum/role';
 import { ProviderTypes } from '@auth/enum/provider.types';
 import { LearningModule } from './learning/learning.module';
+import { LoggerMiddleware } from './middlogger';
 
 @Module({
 	imports: [
@@ -83,5 +84,9 @@ export class AppModule implements OnModuleInit {
 				});
 			}
 		}
+	}
+
+	configure(consumer: MiddlewareConsumer): void {
+		consumer.apply(LoggerMiddleware).forRoutes('*'); // Применяем ко всем маршрутам
 	}
 }
