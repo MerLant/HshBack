@@ -1,6 +1,6 @@
 import { IsArray, IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { TaskTestDto } from './task-test.dto';
+import { TestTaskDto } from 'src/learning/task/dto/test-task.dto';
 
 export class CreateTaskDto {
 	@IsString()
@@ -32,6 +32,6 @@ export class CreateTaskDto {
 
 	@IsArray()
 	@ValidateNested({ each: true })
-	@Type(() => TaskTestDto)
-	tests: TaskTestDto[];
+	@Type(() => TestTaskDto)
+	tests: TestTaskDto[];
 }

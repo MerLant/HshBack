@@ -1,9 +1,22 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, UseGuards } from '@nestjs/common';
+import {
+	Body,
+	Controller,
+	Delete,
+	Get,
+	Param,
+	ParseIntPipe,
+	ParseUUIDPipe,
+	Post,
+	Put,
+	UseGuards,
+} from '@nestjs/common';
 import { TaskService } from './task.service';
 import { CreateTaskDto, UpdateTaskDto } from './dto/';
 import { Role } from '@role/enum/role';
-import { Roles } from '@common/decorators';
+import { CurrentUser, Roles } from '@common/decorators';
 import { RolesGuard } from '@auth/guargs/role.guard';
+import { JwtPayload } from '@auth/interfaces';
+import { ExecuteTaskDto } from 'src/learning/task/dto/execute-task.dto';
 
 @Controller('learning/task')
 export class TaskController {
@@ -17,8 +30,8 @@ export class TaskController {
 	}
 
 	@Get(':id')
-	findOne(@Param('id', ParseIntPipe) id: number) {
-		return this.taskService.findOne(+id);
+	findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() userJP: JwtPayload) {
+		return this.taskService.findOne(+id, userJP);
 	}
 
 	@Put(':id')
@@ -43,5 +56,15 @@ export class TaskController {
 	@Get()
 	async findAllByThemeId(@Param('themeId', ParseIntPipe) themeId: number) {
 		return await this.taskService.findAllByThemeId(themeId);
+	}
+
+	@Get(':userId/:taskId')
+	async getResultsByUserAndTask(@Param('userId', ParseUUIDPipe) userId: string, @Param('taskId') taskId: string) {
+		return this.taskService.getTestResultsByTaskAndUser(userId, +taskId);
+	}
+
+	@Post(':id/execute')
+	async executeTestsForTask(@Body() executeTask: ExecuteTaskDto, @CurrentUser() userJP: JwtPayload) {
+		return this.taskService.executeTestsForTask(userJP.id, executeTask.taskId, executeTask.code);
 	}
 }

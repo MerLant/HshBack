@@ -20,8 +20,19 @@ export class UserController {
 	constructor(private readonly userService: UserService) {}
 
 	@Get()
-	me(@CurrentUser() user: JwtPayload) {
-		return user;
+	async me(@CurrentUser() userJP: JwtPayload) {
+		const user = await this.userService.findByIdentifier(userJP.id);
+		console.log(user);
+		return new UserResponse(user);
+	}
+
+	@Get(':id/role')
+	async getRoleByUserId(@Param('id') id: string) {
+		return this.userService.getRoleByUserId(id);
+	}
+	@Get('/role')
+	async getRoleCurrentUser(@CurrentUser() userJP: JwtPayload) {
+		return this.userService.getRoleByUserId(userJP.id);
 	}
 
 	@UseInterceptors(ClassSerializerInterceptor)

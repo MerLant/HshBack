@@ -63,6 +63,7 @@ model Solution {
     buildId    String  @db.VarChar(36)
     input      String  @db.Text
     output     String? @db.Text
+    isPassed   Boolean @map("is_passed")
     statusCode Int
 
     Build Build @relation(fields: [buildId], references: [id], onDelete: Cascade)
