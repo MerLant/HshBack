@@ -73,6 +73,15 @@ export class AuthService {
 				throw new HttpException('Logout failed: session or token not found.', HttpStatus.NOT_FOUND);
 			}
 
+			// Удаление ProviderToken, если он связан с сессией.
+			if (token.Session.providerTokenId) {
+				await this.prismaService.providerToken.delete({
+					where: {
+						id: token.Session.providerTokenId,
+					},
+				});
+			}
+
 			// Удаление сессии.
 			await this.prismaService.session.delete({
 				where: {

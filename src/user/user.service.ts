@@ -83,9 +83,17 @@ export class UserService {
 
 		let user;
 		if (isUUID(identifier)) {
-			user = await this.prismaService.user.findUnique({ where: { id: identifier } });
+			user = await this.prismaService.user.findUnique({
+				where: {
+					id: identifier,
+				},
+			});
 		} else {
-			user = await this.prismaService.user.findUnique({ where: { nickName: identifier } });
+			user = await this.prismaService.user.findUnique({
+				where: {
+					nickName: identifier,
+				},
+			});
 		}
 
 		// Сохраняем пользователя в кэше, если он найден
@@ -94,6 +102,17 @@ export class UserService {
 		}
 
 		return user;
+	}
+
+	async getRoleByUserId(id: string) {
+		const user = await this.findByIdentifier(id);
+
+		if (!user) {
+			throw new HttpException('User not found', HttpStatus.NOT_FOUND);
+		}
+
+		const userRole = await this.roleService.getUserRole(user);
+		return { name: userRole.name };
 	}
 
 	/**

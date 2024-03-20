@@ -20,6 +20,5 @@ export class UserResponse implements User {
 
 	constructor(user: User) {
 		Object.assign(this, user);
-		this.roleId = user.roleId; // Убедитесь, что это значение корректно назначается из user
 	}
 }

@@ -1,26 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@prisma/prisma.service';
-import { Course, User } from '@prisma/client';
-import { Role } from '@role/enum';
+import { Course, Theme } from '@prisma/client';
 import { CreateCourseDto, UpdateCourseDto } from './dto';
+import { JwtPayload } from '@auth/interfaces';
+import { RoleService } from '@role/role.service';
 
 @Injectable()
 export class CourseService {
-	constructor(private prismaService: PrismaService) {}
+	constructor(private prismaService: PrismaService, private roleService: RoleService) {}
 
-	async findAll(userId: string): Promise<Course[]> {
-		// Получаем пользователя и его роль из базы данных
-		const user = await this.prismaService.user.findUnique({
-			where: { id: userId },
-			include: { Role: true },
-		});
-
-		if (!user) {
-			throw new NotFoundException(`User with ID ${userId} not found`);
-		}
-
-		const isTeacherOrAdmin = [Role.TEACHER.toString(), Role.ADMIN.toString()].includes(user.Role.name);
-
+	async findAll(userJP: JwtPayload): Promise<Course[]> {
+		const isTeacherOrAdmin = await this.roleService.isTeacherOrAdmin(userJP);
 		if (isTeacherOrAdmin) {
 			// Если пользователь - учитель или админ, возвращаем все курсы
 			return this.prismaService.course.findMany();
@@ -76,5 +66,20 @@ export class CourseService {
 		} catch (error) {
 			throw new NotFoundException(`Could not find course with ID ${id} to delete`);
 		}
+	}
+
+	async findCourseThemes(courseId: number): Promise<Theme[]> {
+		const course = await this.prismaService.course.findUnique({
+			where: { id: courseId },
+			include: {
+				Theme: true,
+			},
+		});
+
+		if (!course) {
+			throw new NotFoundException(`Course with ID ${courseId} not found`);
+		}
+
+		return course.Theme;
 	}
 }

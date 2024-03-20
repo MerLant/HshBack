@@ -8,10 +8,10 @@ generator client {
 }
 
 model User {
-    id String @id @default(uuid())
+    id String @id @default(uuid()) @db.VarChar(36)
 
-    nickName    String? @unique
-    displayName String?
+    nickName    String? @unique @db.VarChar(12)
+    displayName String? @db.VarChar(32)
 
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
@@ -32,11 +32,11 @@ model User {
 }
 
 model Token {
-    id String @id @default(uuid())
+    id String @id @default(uuid()) @db.VarChar(36)
 
-    token     String   @unique
+    token     String   @unique @db.VarChar(36)
     exp       DateTime
-    userId    String
+    userId    String   @db.VarChar(36)
     userAgent String
 
     user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -47,10 +47,10 @@ model Token {
 }
 
 model TaskTest {
-    id     String @id @default(uuid())
+    id     String @id @default(uuid()) @db.VarChar(36)
     taskId Int
-    input  String
-    output String
+    input  String @db.Text
+    output String @db.Text
 
     Task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
@@ -58,12 +58,13 @@ model TaskTest {
 }
 
 model Solution {
-    id String @id @default(uuid())
+    id String @id @default(uuid()) @db.VarChar(36)
 
-    buildId    String
-    input      String
-    output     String?
-    statusCode String
+    buildId    String  @db.VarChar(36)
+    input      String  @db.Text
+    output     String? @db.Text
+    isPassed   Boolean @map("is_passed")
+    statusCode Int
 
     Build Build @relation(fields: [buildId], references: [id], onDelete: Cascade)
 
@@ -71,12 +72,12 @@ model Solution {
 }
 
 model Build {
-    id        String   @id @default(uuid())
-    userId    String
+    id        String   @id @default(uuid()) @db.VarChar(36)
+    userId    String   @db.VarChar(36)
     taskId    Int
     userCode  String   @db.Text
     buildDate DateTime
-    lang      String?
+    lang      String?  @db.VarChar(8)
 
     user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
     task     Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
@@ -88,7 +89,7 @@ model Build {
 
 model Course {
     id          Int     @id @default(autoincrement())
-    name        String
+    name        String  @db.VarChar(32)
     description String? @db.Text
     isDisable   Boolean @default(false)
 
@@ -99,7 +100,7 @@ model Course {
 
 model Theme {
     id          Int     @id @default(autoincrement())
-    name        String
+    name        String  @db.VarChar(32)
     description String? @db.Text
     courseId    Int
     isDisable   Boolean @default(false)
@@ -114,7 +115,7 @@ model Theme {
 model Task {
     id Int @id @default(autoincrement())
 
-    name        String
+    name        String  @db.VarChar(32)
     description String? @db.Text
 
     runTimeout     Int
@@ -136,7 +137,7 @@ model Task {
 
 model Role {
     id   Int    @id @default(autoincrement())
-    name String @unique
+    name String @unique @db.VarChar(12)
 
     User User[]
 
@@ -146,8 +147,8 @@ model Role {
 
 model Provider {
     id             Int    @id @default(autoincrement())
-    userId         String
-    providerUserId String
+    userId         String @db.VarChar(36)
+    providerUserId String @db.VarChar(255)
     providerTypeId Int
 
     User          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -159,8 +160,8 @@ model Provider {
 }
 
 model ProviderToken {
-    id             String @id @default(uuid())
-    providerToken  String @unique
+    id             String @id @default(uuid()) @db.VarChar(36)
+    providerToken  String @db.VarChar(255)
     providerTypeId Int
     providerId     Int
 
@@ -172,7 +173,7 @@ model ProviderToken {
 
 model ProviderType {
     id   Int    @id @default(autoincrement())
-    name String @unique
+    name String @unique @db.VarChar(12)
 
     Provider Provider[]
 
@@ -180,9 +181,9 @@ model ProviderType {
 }
 
 model Session {
-    id              String @id @default(uuid())
-    refreshTokenId  String @unique
-    providerTokenId String @unique
+    id              String @id @default(uuid()) @db.VarChar(36)
+    refreshTokenId  String @unique @db.VarChar(36)
+    providerTokenId String @unique @db.VarChar(36)
 
     Token         Token         @relation(fields: [refreshTokenId], references: [id], onDelete: Cascade)
     ProviderToken ProviderToken @relation(fields: [providerTokenId], references: [id], onDelete: Cascade)
@@ -191,7 +192,7 @@ model Session {
 }
 
 model UserGroup {
-    userId  String
+    userId  String @db.VarChar(36)
     groupId Int
 
     user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -203,9 +204,9 @@ model UserGroup {
 
 model Group {
     id    Int    @id @default(autoincrement())
-    name  String
-    admin String
-    code  String @unique
+    name  String @db.VarChar(24)
+    admin String @db.VarChar(36)
+    code  String @unique @db.VarChar(6)
 
     Users      User        @relation(fields: [admin], references: [id])
     UsersGroup UserGroup[]

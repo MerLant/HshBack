@@ -1,9 +1,20 @@
 import { Cookie, Public, UserAgent } from '@common/decorators';
-import { Controller, Get, HttpStatus, Logger, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import {
+	Controller,
+	Get,
+	HttpException,
+	HttpStatus,
+	Logger,
+	Req,
+	Res,
+	UnauthorizedException,
+	UseGuards,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { YandexGuard } from './guargs/yandex.guard';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 
 export const REFRESH_TOKEN = 'refreshToken';
 
@@ -23,6 +34,8 @@ export class AuthController {
 		await this.authService.logout(refreshToken, res);
 	}
 
+	@UseGuards(ThrottlerGuard)
+	@Throttle({ default: { limit: 1, ttl: 10 } })
 	@Get('refresh-tokens')
 	async refreshTokens(@Cookie(REFRESH_TOKEN) refreshToken: string, @Res() res: Response, @UserAgent() agent: string) {
 		if (refreshToken) {
@@ -30,6 +43,26 @@ export class AuthController {
 			await this.authService.setRefreshTokenToCookies(tokens, res);
 		} else {
 			throw new UnauthorizedException();
+		}
+	}
+
+	@Get('check-auth')
+	async checkAuthToken(@Req() request): Promise<{ accessToken?: string; status: boolean }> {
+		const accessToken = request.headers.authorization?.split(' ')[1];
+		const refreshToken = request.cookies?.refreshToken;
+
+		if (!accessToken) {
+			throw new HttpException('No access token provided', HttpStatus.BAD_REQUEST);
+		}
+
+		const result = await this.authService.checkAuth(accessToken, refreshToken);
+
+		if (typeof result === 'string') {
+			// Возвращаем новый accessToken
+			return { accessToken: result, status: true };
+		} else {
+			// Возвращаем статус текущего accessToken
+			return { status: result };
 		}
 	}
 

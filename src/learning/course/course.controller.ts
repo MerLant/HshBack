@@ -1,8 +1,8 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, ParseIntPipe } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, UseGuards } from '@nestjs/common';
 import { CourseService } from './course.service';
-import { CreateCourseDto, UpdateCourseDto } from './dto/';
+import { CreateCourseDto, UpdateCourseDto } from './dto';
 import { Role } from '@role/enum/role';
-import { CurrentUser, Roles } from '@common/decorators';
+import { CurrentUser, Public, Roles } from '@common/decorators';
 import { RolesGuard } from '@auth/guargs/role.guard';
 import { JwtPayload } from '@auth/interfaces';
 
@@ -10,9 +10,10 @@ import { JwtPayload } from '@auth/interfaces';
 export class CourseController {
 	constructor(private readonly courseService: CourseService) {}
 
+	@Public()
 	@Get()
 	findAll(@CurrentUser() user: JwtPayload) {
-		return this.courseService.findAll(user.id);
+		return this.courseService.findAll(user);
 	}
 
 	@Post()
@@ -22,6 +23,7 @@ export class CourseController {
 		return this.courseService.create(createCourseDto);
 	}
 
+	@Public()
 	@Get(':id')
 	findOne(@Param('id', ParseIntPipe) id: number) {
 		return this.courseService.findOne(+id);
@@ -39,5 +41,11 @@ export class CourseController {
 	@Roles(Role.TEACHER, Role.ADMIN)
 	remove(@Param('id') id: string) {
 		return this.courseService.remove(+id);
+	}
+
+	@Public()
+	@Get(':id/themes')
+	findCourseThemes(@Param('id', ParseIntPipe) id: number) {
+		return this.courseService.findCourseThemes(id);
 	}
 }
