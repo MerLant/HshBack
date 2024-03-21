@@ -156,7 +156,6 @@ export class TaskService {
 
 		for (const test of task.TaskTest) {
 			const output = await this.executeRequest(code, test.input, task);
-			console.log(output);
 
 			await this.prismaService.solution.create({
 				data: {

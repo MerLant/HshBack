@@ -83,7 +83,7 @@ model Build {
 	task     Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
 	Solution Solution[]
 
-	@@unique([userId, taskId])
+	@@index([userId, taskId])
 	@@map("build")
 }
 

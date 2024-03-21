@@ -22,7 +22,6 @@ export class UserController {
 	@Get()
 	async me(@CurrentUser() userJP: JwtPayload) {
 		const user = await this.userService.findByIdentifier(userJP.id);
-		console.log(user);
 		return new UserResponse(user);
 	}
 

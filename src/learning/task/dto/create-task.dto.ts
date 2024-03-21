@@ -1,4 +1,13 @@
-import { IsArray, IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
+import {
+	IsArray,
+	IsBoolean,
+	IsInt,
+	IsNotEmpty,
+	IsOptional,
+	IsString,
+	ValidateNested,
+	IsPositive,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { TestTaskDto } from 'src/learning/task/dto/test-task.dto';
 
@@ -12,12 +21,14 @@ export class CreateTaskDto {
 	description?: string;
 
 	@IsInt()
+	@IsPositive()
 	runTimeout: number;
 
 	@IsInt()
 	runMemoryLimit: number;
 
 	@IsInt()
+	@IsPositive()
 	compileTimeout: number;
 
 	@IsInt()
