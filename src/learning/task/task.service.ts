@@ -4,6 +4,7 @@ import { Task } from '@prisma/client';
 import { CreateTaskDto, UpdateTaskDto } from './dto/';
 import { RoleService } from '@role/role.service';
 import { JwtPayload } from '@auth/interfaces';
+import { ExecutionResponse, TestResultsSummary } from './model/pison';
 import axios from 'axios';
 
 @Injectable()
@@ -108,7 +109,7 @@ export class TaskService {
 			version: 'x',
 			files: [
 				{
-					name: 'my_cool_code.cs',
+					name: 'code.cs',
 					content: code,
 				},
 			],
@@ -120,7 +121,7 @@ export class TaskService {
 		};
 
 		try {
-			const response = await axios.post('http://193.233.80.138:2000/api/v2/execute/', data);
+			const response = await axios.post<ExecutionResponse>('http://193.233.80.138:2000/api/v2/execute/', data);
 
 			return response.data;
 		} catch (error) {

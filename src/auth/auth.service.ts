@@ -521,7 +521,7 @@ export class AuthService {
 		const provider: Provider | null = await this.getProvider(user, yandexProvider);
 		if (!provider) {
 			this.logger.error('The provider is null, where it cannot be');
-			throw new HttpException('The provider is null, where it cannot be', HttpStatus.INTERNAL_SERVER_ERROR);
+			throw new HttpException('The provider is null, where it cannot be', HttpStatus.NOT_FOUND);
 		}
 
 		let providerToken: ProviderToken | null = await this.checkProviderToken(yandexToken);
@@ -531,11 +531,8 @@ export class AuthService {
 
 		const { refreshToken, accessToken } = await this.auth(user, userAgent);
 
-		if (!(await this.getSessionByProviderTokenId(providerToken.id))) {
-			await this.createSession(providerToken.id, refreshToken.id);
-		}
+		await this.createSession(providerToken.id, refreshToken.id);
 
-		// Возвращаем токены
 		return { accessToken, refreshToken };
 	}
 

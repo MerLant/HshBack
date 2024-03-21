@@ -8,14 +8,14 @@ interface ExecutionResult {
 
 type CompilationResult = ExecutionResult;
 
-interface ExecutionResponse {
+export interface ExecutionResponse {
 	language: string;
 	version: string;
 	run: ExecutionResult;
 	compile?: CompilationResult;
 }
 
-interface TestResultsSummary {
+export interface TestResultsSummary {
 	taskId: number;
 	passedTests: number;
 	totalTests: number;
