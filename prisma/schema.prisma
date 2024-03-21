@@ -1,216 +1,216 @@
 datasource db {
-    provider = "postgresql"
-    url      = env("DATABASE_URL")
+	provider = "postgresql"
+	url      = env("DATABASE_URL")
 }
 
 generator client {
-    provider = "prisma-client-js"
+	provider = "prisma-client-js"
 }
 
 model User {
-    id String @id @default(uuid()) @db.VarChar(36)
+	id String @id @default(uuid()) @db.VarChar(36)
 
-    nickName    String? @unique @db.VarChar(12)
-    displayName String? @db.VarChar(32)
+	nickName    String? @unique @db.VarChar(12)
+	displayName String? @db.VarChar(32)
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+	createdAt DateTime @default(now())
+	updatedAt DateTime @updatedAt
 
-    roleId    Int?
-    isBlocked Boolean @default(false)
+	roleId    Int?
+	isBlocked Boolean @default(false)
 
-    Role Role? @relation(fields: [roleId], references: [id], onDelete: SetNull)
+	Role Role? @relation(fields: [roleId], references: [id], onDelete: SetNull)
 
-    Provider  Provider[]
-    Token     Token[]
-    Build     Build[]
-    Group     Group[]
-    UserGroup UserGroup[]
+	Provider  Provider[]
+	Token     Token[]
+	Build     Build[]
+	Group     Group[]
+	UserGroup UserGroup[]
 
-    @@index([displayName])
-    @@map("user")
+	@@index([displayName])
+	@@map("user")
 }
 
 model Token {
-    id String @id @default(uuid()) @db.VarChar(36)
+	id String @id @default(uuid()) @db.VarChar(36)
 
-    token     String   @unique @db.VarChar(36)
-    exp       DateTime
-    userId    String   @db.VarChar(36)
-    userAgent String
+	token     String   @unique @db.VarChar(36)
+	exp       DateTime
+	userId    String   @db.VarChar(36)
+	userAgent String
 
-    user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-    Session Session?
+	user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+	Session Session?
 
-    @@index([exp, userId])
-    @@map("token")
+	@@index([exp, userId])
+	@@map("token")
 }
 
 model TaskTest {
-    id     String @id @default(uuid()) @db.VarChar(36)
-    taskId Int
-    input  String @db.Text
-    output String @db.Text
+	id     String @id @default(uuid()) @db.VarChar(36)
+	taskId Int
+	input  String @db.Text
+	output String @db.Text
 
-    Task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+	Task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
-    @@map("task_test")
+	@@map("task_test")
 }
 
 model Solution {
-    id String @id @default(uuid()) @db.VarChar(36)
+	id String @id @default(uuid()) @db.VarChar(36)
 
-    buildId    String  @db.VarChar(36)
-    input      String  @db.Text
-    output     String? @db.Text
-    isPassed   Boolean @map("is_passed")
-    statusCode Int
+	buildId    String  @db.VarChar(36)
+	input      String  @db.Text
+	output     String? @db.Text
+	isPassed   Boolean @map("is_passed")
+	statusCode Int
 
-    Build Build @relation(fields: [buildId], references: [id], onDelete: Cascade)
+	Build Build @relation(fields: [buildId], references: [id], onDelete: Cascade)
 
-    @@map("solution")
+	@@map("solution")
 }
 
 model Build {
-    id        String   @id @default(uuid()) @db.VarChar(36)
-    userId    String   @db.VarChar(36)
-    taskId    Int
-    userCode  String   @db.Text
-    buildDate DateTime
-    lang      String?  @db.VarChar(8)
+	id        String   @id @default(uuid()) @db.VarChar(36)
+	userId    String   @db.VarChar(36)
+	taskId    Int
+	userCode  String   @db.Text
+	buildDate DateTime
+	lang      String?  @db.VarChar(8)
 
-    user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-    task     Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
-    Solution Solution[]
+	user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+	task     Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+	Solution Solution[]
 
-    @@index([userId, taskId])
-    @@map("build")
+	@@unique([userId, taskId])
+	@@map("build")
 }
 
 model Course {
-    id          Int     @id @default(autoincrement())
-    name        String  @db.VarChar(32)
-    description String? @db.Text
-    isDisable   Boolean @default(false)
+	id          Int     @id @default(autoincrement())
+	name        String  @db.VarChar(32)
+	description String? @db.Text
+	isDisable   Boolean @default(false)
 
-    Theme Theme[]
+	Theme Theme[]
 
-    @@map("course")
+	@@map("course")
 }
 
 model Theme {
-    id          Int     @id @default(autoincrement())
-    name        String  @db.VarChar(32)
-    description String? @db.Text
-    courseId    Int
-    isDisable   Boolean @default(false)
+	id          Int     @id @default(autoincrement())
+	name        String  @db.VarChar(32)
+	description String? @db.Text
+	courseId    Int
+	isDisable   Boolean @default(false)
 
-    Course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
-    Task   Task[]
+	Course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+	Task   Task[]
 
-    @@index([name])
-    @@map("theme")
+	@@index([name])
+	@@map("theme")
 }
 
 model Task {
-    id Int @id @default(autoincrement())
+	id Int @id @default(autoincrement())
 
-    name        String  @db.VarChar(32)
-    description String? @db.Text
+	name        String  @db.VarChar(32)
+	description String? @db.Text
 
-    runTimeout     Int
-    runMemoryLimit Int
+	runTimeout     Int
+	runMemoryLimit Int
 
-    compileTimeout     Int
-    compileMemoryLimit Int
+	compileTimeout     Int
+	compileMemoryLimit Int
 
-    themeId   Int
-    isDisable Boolean @default(false)
+	themeId   Int
+	isDisable Boolean @default(false)
 
-    Theme    Theme      @relation(fields: [themeId], references: [id], onDelete: Cascade)
-    Build    Build[]
-    TaskTest TaskTest[]
+	Theme    Theme      @relation(fields: [themeId], references: [id], onDelete: Cascade)
+	Build    Build[]
+	TaskTest TaskTest[]
 
-    @@index([name, isDisable])
-    @@map("task")
+	@@index([name])
+	@@map("task")
 }
 
 model Role {
-    id   Int    @id @default(autoincrement())
-    name String @unique @db.VarChar(12)
+	id   Int    @id @default(autoincrement())
+	name String @unique @db.VarChar(12)
 
-    User User[]
+	User User[]
 
-    @@index([name])
-    @@map("role")
+	@@index([name])
+	@@map("role")
 }
 
 model Provider {
-    id             Int    @id @default(autoincrement())
-    userId         String @db.VarChar(36)
-    providerUserId String @db.VarChar(255)
-    providerTypeId Int
+	id             Int    @id @default(autoincrement())
+	userId         String @db.VarChar(36)
+	providerUserId String @db.VarChar(255)
+	providerTypeId Int
 
-    User          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-    ProviderType  ProviderType    @relation(fields: [providerTypeId], references: [id], onDelete: Cascade)
-    ProviderToken ProviderToken[]
+	User          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+	ProviderType  ProviderType    @relation(fields: [providerTypeId], references: [id], onDelete: Cascade)
+	ProviderToken ProviderToken[]
 
-    @@unique([providerUserId, providerTypeId])
-    @@map("provider")
+	@@unique([providerUserId, providerTypeId])
+	@@map("provider")
 }
 
 model ProviderToken {
-    id             String @id @default(uuid()) @db.VarChar(36)
-    providerToken  String @db.VarChar(255)
-    providerTypeId Int
-    providerId     Int
+	id             String @id @default(uuid()) @db.VarChar(36)
+	providerToken  String @db.VarChar(255)
+	providerTypeId Int
+	providerId     Int
 
-    Provider Provider  @relation(fields: [providerId], references: [id])
-    Session  Session[]
+	Provider Provider  @relation(fields: [providerId], references: [id])
+	Session  Session[]
 
-    @@map("provider_token")
+	@@map("provider_token")
 }
 
 model ProviderType {
-    id   Int    @id @default(autoincrement())
-    name String @unique @db.VarChar(12)
+	id   Int    @id @default(autoincrement())
+	name String @unique @db.VarChar(12)
 
-    Provider Provider[]
+	Provider Provider[]
 
-    @@map("provider_type")
+	@@map("provider_type")
 }
 
 model Session {
-    id              String @id @default(uuid()) @db.VarChar(36)
-    refreshTokenId  String @unique @db.VarChar(36)
-    providerTokenId String @unique @db.VarChar(36)
+	id              String @id @default(uuid()) @db.VarChar(36)
+	refreshTokenId  String @unique @db.VarChar(36)
+	providerTokenId String @unique @db.VarChar(36)
 
-    Token         Token         @relation(fields: [refreshTokenId], references: [id], onDelete: Cascade)
-    ProviderToken ProviderToken @relation(fields: [providerTokenId], references: [id], onDelete: Cascade)
+	Token         Token         @relation(fields: [refreshTokenId], references: [id], onDelete: Cascade)
+	ProviderToken ProviderToken @relation(fields: [providerTokenId], references: [id], onDelete: Cascade)
 
-    @@map("session")
+	@@map("session")
 }
 
 model UserGroup {
-    userId  String @db.VarChar(36)
-    groupId Int
+	userId  String @db.VarChar(36)
+	groupId Int
 
-    user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-    group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+	user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+	group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
-    @@id([userId, groupId])
-    @@map("users_group")
+	@@id([userId, groupId])
+	@@map("users_group")
 }
 
 model Group {
-    id    Int    @id @default(autoincrement())
-    name  String @db.VarChar(24)
-    admin String @db.VarChar(36)
-    code  String @unique @db.VarChar(6)
+	id    Int    @id @default(autoincrement())
+	name  String @db.VarChar(24)
+	admin String @db.VarChar(36)
+	code  String @unique @db.VarChar(6)
 
-    Users      User        @relation(fields: [admin], references: [id])
-    UsersGroup UserGroup[]
+	Users      User        @relation(fields: [admin], references: [id])
+	UsersGroup UserGroup[]
 
-    @@index([name, code])
-    @@map("group")
+	@@index([name, code])
+	@@map("group")
 }

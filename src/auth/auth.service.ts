@@ -1,6 +1,6 @@
 import { HttpException, HttpStatus, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { ProviderType, Session, Token, User, ProviderToken, Provider } from '@prisma/client';
+import { Provider, ProviderToken, ProviderType, Session, Token, User } from '@prisma/client';
 import { PrismaService } from '@prisma/prisma.service';
 import { UserService } from '@user/user.service';
 import { Tokens } from './interfaces';
@@ -54,38 +54,80 @@ export class AuthService {
 	 * @param {Response} res - Объект ответа Express, используемый для очистки куки.
 	 */
 	async logout(refreshToken: string, res: Response) {
-		// Очищаем куки.
-		await this.clearCookie(res);
-
 		try {
+			if (!refreshToken) {
+				this.logger.error('No refreshToken provided.');
+				throw new HttpException('Logout failed: No refresh token provided.', HttpStatus.BAD_REQUEST);
+			}
+
 			const token = await this.prismaService.token.findUnique({
 				where: {
 					token: refreshToken,
 				},
-				include: {
-					Session: true,
+			});
+
+			const session = await this.prismaService.session.findFirst({
+				where: {
+					refreshTokenId: token.id,
 				},
 			});
 
-			// Если токен или сессия не найдены, прекращаем выполнение функции.
-			if (!token || !token.Session) {
-				this.logger.error('Token or session not found.');
-				throw new HttpException('Logout failed: session or token not found.', HttpStatus.NOT_FOUND);
+			// Если токен не найден, прекращаем выполнение и возвращаем ошибку.
+			if (!token) {
+				this.logger.error('Token not found.');
+				throw new HttpException('Logout failed: Token not found.', HttpStatus.NOT_FOUND);
 			}
 
-			// Удаление сессии.
-			await this.prismaService.session.delete({
-				where: {
-					id: token.Session.id,
-				},
-			});
+			// Проверяем наличие связанной сессии
+			if (!session) {
+				this.logger.error('Session not found for the token.');
+				throw new HttpException('Logout failed: Session not found.', HttpStatus.NOT_FOUND);
+			}
 
-			await this.deleteRefreshToken(token.id);
-
+			await this.deleteRefreshTokenById(token.id);
+			await this.clearCookie(res);
 			return res.sendStatus(HttpStatus.OK);
 		} catch (error) {
-			this.logger.error('Error during logout:', error);
-			throw new HttpException('Logout failed due to an internal error.', HttpStatus.INTERNAL_SERVER_ERROR);
+			this.logger.error('Error during logout:', error.message);
+			throw new HttpException(`Logout failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
+		}
+	}
+
+	async checkAuth(accessToken: string, refreshToken?: string): Promise<string | boolean> {
+		try {
+			// Проверяем accessToken
+			this.jwtService.verify(accessToken);
+			return true; // accessToken действителен
+		} catch (error) {
+			// accessToken недействителен
+			if (!refreshToken) {
+				throw new HttpException('Invalid access token', HttpStatus.UNAUTHORIZED);
+			}
+
+			try {
+				// Проверяем валидность refreshToken и извлекаем ID пользователя
+				const decoded = this.jwtService.verify(refreshToken);
+				const userId = decoded.id;
+
+				// Ищем пользователя и его refreshToken в базе данных
+				const user = await this.prismaService.user.findUnique({
+					where: { id: userId },
+					include: {
+						Token: true, // Предполагается, что у пользователя есть связь с токенами
+					},
+				});
+
+				if (!user || !user.Token || !user.Token.some((t) => t.token === refreshToken)) {
+					throw new HttpException('Invalid refresh token', HttpStatus.UNAUTHORIZED);
+				}
+
+				// Генерируем новый accessToken
+				const newAccessToken = this.jwtService.sign({ id: userId });
+				return newAccessToken; // Возвращаем новый accessToken
+			} catch (refreshError) {
+				// refreshToken недействителен
+				throw new HttpException('Invalid refresh token', HttpStatus.UNAUTHORIZED);
+			}
 		}
 	}
 
@@ -134,6 +176,7 @@ export class AuthService {
 	 * @returns {Promise<Tokens>} Объект, содержащий новые токены доступа и обновления.
 	 * @throws {UnauthorizedException} Если рефреш-токен недействителен или истек.
 	 */
+	// Обновляем существующий рефреш-токен вместо удаления
 	async refreshTokens(refreshToken: string, userAgent: string): Promise<Tokens> {
 		const user = await this.getUserByRefreshToken(refreshToken);
 
@@ -144,22 +187,28 @@ export class AuthService {
 		const oldToken = await this.getRefreshToken(refreshToken);
 
 		if (!oldToken || new Date(oldToken.exp) < new Date() || oldToken.userAgent !== userAgent) {
-			if (oldToken) {
-				await this.deleteRefreshToken(oldToken.token);
-			}
 			throw new UnauthorizedException();
 		}
 
-		// Генерируем новые токены и создаем новый рефреш-токен
-		const tokens = await this.generateTokens(user, userAgent);
+		// Генерируем новый токен доступа
+		const accessToken = 'Bearer ' + this.jwtService.sign({ id: user.id });
 
-		// Обновляем refreshTokenId в Session, используя новый рефреш-токен
-		await this.updateSessionRefreshTokenId(oldToken.id, tokens.refreshToken.id);
+		// Обновляем рефреш-токен в базе данных, а не создаем новый
+		const newRefreshTokenData = {
+			token: v4(),
+			exp: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30), // Например, срок действия 30 дней
+			userAgent: userAgent, // Обновляем user agent, если это необходимо
+		};
 
-		// Удаляем старый рефреш-токен
-		await this.deleteRefreshToken(oldToken.token);
+		await this.prismaService.token.update({
+			where: { token: refreshToken },
+			data: newRefreshTokenData,
+		});
 
-		return tokens;
+		return {
+			accessToken,
+			refreshToken: { ...oldToken, ...newRefreshTokenData }, // Возвращаем обновленные данные токена
+		};
 	}
 
 	/**
@@ -177,12 +226,18 @@ export class AuthService {
 	}
 
 	/**
-	 * Удаляет рефреш-токен из базы данных.
-	 * @param {string} refreshToken - Токен, который необходимо удалить.
-	 * @returns {Promise} - Промис без возвращаемого значения после выполнения удаления.
+	 * Удаляет рефреш-токен по ID из базы данных.
+	 * @param {string} refreshTokenId - Токен, который необходимо удалить.
+	 * @returns {Promise<void>} - Промис без возвращаемого значения после выполнения удаления.
 	 */
-	async deleteRefreshToken(refreshToken: string): Promise<any> {
-		return this.prismaService.token.delete({ where: { token: refreshToken } });
+	async deleteRefreshTokenById(refreshTokenId: string): Promise<void> {
+		// Поиск токена в базе данных
+		const token = await this.prismaService.token.findUnique({ where: { id: refreshTokenId } });
+
+		// Если токен найден, удаляем его
+		if (token) {
+			await this.prismaService.token.delete({ where: { id: token.id } });
+		}
 	}
 
 	/**
@@ -240,7 +295,7 @@ export class AuthService {
 
 		// Если сессия найдена, обновляем refreshTokenId.
 		if (session) {
-			await this.prismaService.session.update({
+			return this.prismaService.session.update({
 				where: {
 					id: session.id,
 				},
