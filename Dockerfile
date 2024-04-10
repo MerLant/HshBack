@@ -54,10 +54,9 @@ WORKDIR /app
 # Копируем зависимости из base стадии
 COPY --from=base /app/node_modules ./node_modules
 
-RUN pnpm prisma migrate deploy
 
 # Копируем собранные файлы и сгенерированный Prisma клиент из стадии base
 COPY --from=base /app/dist ./dist
 
 # Определяем команду для запуска миграций Prisma и старта приложения
-CMD node dist/main
+CMD ["sh", "-c", "pnpm prisma migrate deploy && node dist/main"]
