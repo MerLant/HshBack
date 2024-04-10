@@ -13,6 +13,11 @@ RUN apt-get update -y && apt-get install -y openssl libssl-dev
 # Установите pnpm
 RUN corepack prepare pnpm@latest --activate
 
+ARG DATABASE_URL
+
+# Устанавливаем переменную окружения DATABASE_URL
+ENV DATABASE_URL=$DATABASE_URL
+
 # Создайте директорию для приложения
 WORKDIR /app
 
@@ -26,7 +31,7 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 
 # Генерируем Prisma клиент
-RUN pnpm prisma generate && pnpm prisma migrate deploy
+RUN pnpm prisma generate
 
 # Соберите ваше приложение
 RUN pnpm run build
@@ -48,6 +53,8 @@ WORKDIR /app
 
 # Копируем зависимости из base стадии
 COPY --from=base /app/node_modules ./node_modules
+
+RUN pnpm prisma migrate deploy
 
 # Копируем собранные файлы и сгенерированный Prisma клиент из стадии base
 COPY --from=base /app/dist ./dist
