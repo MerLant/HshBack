@@ -6,10 +6,15 @@ import { RoleService } from '@role/role.service';
 import { JwtPayload } from '@auth/interfaces';
 import { ExecutionResponse, TestResultsSummary } from './model/pison';
 import axios from 'axios';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class TaskService {
-	constructor(private prismaService: PrismaService, private roleService: RoleService) {}
+	constructor(
+		private prismaService: PrismaService,
+		private roleService: RoleService,
+		private readonly configService: ConfigService,
+	) {}
 
 	async create(createTaskDto: CreateTaskDto): Promise<Task> {
 		const { tests, ...taskData } = createTaskDto;
@@ -121,7 +126,10 @@ export class TaskService {
 		};
 
 		try {
-			const response = await axios.post<ExecutionResponse>('http://193.233.80.138:2000/api/v2/execute/', data);
+			const response = await axios.post<ExecutionResponse>(
+				`http://${this.configService.get('PISOTN_IP')}:2000/api/v2/execute/`,
+				data,
+			);
 
 			return response.data;
 		} catch (error) {
