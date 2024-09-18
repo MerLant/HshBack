@@ -7,7 +7,7 @@ settings:
 dependencies:
   '@nestjs/axios':
     specifier: ^2.0.0
-    version: 2.0.0(@nestjs/common@9.4.3)(axios@1.6.8)(reflect-metadata@0.1.14)(rxjs@7.8.1)
+    version: 2.0.0(@nestjs/common@9.4.3)(axios@1.7.4)(reflect-metadata@0.1.14)(rxjs@7.8.1)
   '@nestjs/cache-manager':
     specifier: ^1.0.0
     version: 1.0.0(@nestjs/common@9.4.3)(cache-manager@5.5.1)(reflect-metadata@0.1.14)(rxjs@7.8.1)
@@ -36,8 +36,8 @@ dependencies:
     specifier: ^5.12.1
     version: 5.12.1(prisma@5.12.1)
   axios:
-    specifier: ^1.6.8
-    version: 1.6.8
+    specifier: ^1.7.4
+    version: 1.7.4
   bcrypt:
     specifier: ^5.1.1
     version: 5.1.1
@@ -937,7 +937,7 @@ packages:
       - supports-color
     dev: false
 
-  /@nestjs/axios@2.0.0(@nestjs/common@9.4.3)(axios@1.6.8)(reflect-metadata@0.1.14)(rxjs@7.8.1):
+  /@nestjs/axios@2.0.0(@nestjs/common@9.4.3)(axios@1.7.4)(reflect-metadata@0.1.14)(rxjs@7.8.1):
     resolution: {integrity: sha512-F6oceoQLEn031uun8NiommeMkRIojQqVryxQy/mK7fx0CI0KbgkJL3SloCQcsOD+agoEnqKJKXZpEvL6FNswJg==}
     peerDependencies:
       '@nestjs/common': ^7.0.0 || ^8.0.0 || ^9.0.0
@@ -946,7 +946,7 @@ packages:
       rxjs: ^6.0.0 || ^7.0.0
     dependencies:
       '@nestjs/common': 9.4.3(cache-manager@5.5.1)(class-transformer@0.5.1)(class-validator@0.14.1)(reflect-metadata@0.1.14)(rxjs@7.8.1)
-      axios: 1.6.8
+      axios: 1.7.4
       reflect-metadata: 0.1.14
       rxjs: 7.8.1
     dev: false
@@ -1939,8 +1939,8 @@ packages:
   /asynckit@0.4.0:
     resolution: {integrity: sha512-Oei9OH4tRh0YqU3GxhX79dM/mwVgvbZJaSNaRk+bshkj0S5cfHcgYakreBjrHwatXKbz+IoIdYLxrKim2MjW0Q==}
 
-  /axios@1.6.8:
-    resolution: {integrity: sha512-v/ZHtJDU39mDpyBoFVkETcd/uNdxrWRrg3bKpOKzXFA6Bvqopts6ALSMU3y6ijYxbw2B+wPrIv46egTzJXCLGQ==}
+  /axios@1.7.4:
+    resolution: {integrity: sha512-DukmaFRnY6AzAALSH4J2M3k6PkaC+MfaAGdEERRWcC9q3/TWQwLpHR8ZRLKTdQ3aBDL64EdluRDjJqKw+BPZEw==}
     dependencies:
       follow-redirects: 1.15.6
       form-data: 4.0.0
