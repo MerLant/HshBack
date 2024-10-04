@@ -49,7 +49,15 @@ jobs:
                   name: nestjs-app-release
                   path: release.tar.gz
 
-            # 7. Деплой на сервер через Pterodactyl
+    deploy:
+        runs-on: ubuntu-latest
+        needs: build
+        steps:
+            - name: Download Artifact
+              uses: actions/download-artifact@v3
+              with:
+                  name: nestjs-app-release
+
             - name: Deploy to Pterodactyl
               env:
                   PANEL_URL: ${{ secrets.PTERO_PANEL_URL }}
@@ -74,10 +82,6 @@ jobs:
                     exit 1
                   fi
 
-    decompress:
-        runs-on: ubuntu-latest
-        needs: build
-        steps:
             - name: Decompress Artifact on Server
               env:
                   PANEL_URL: ${{ secrets.PTERO_PANEL_URL }}
@@ -85,20 +89,16 @@ jobs:
                   SERVER_ID: ${{ secrets.PTERO_SERVER_ID }}
               run: |
                   # Распаковка артефакта на сервере через Pterodactyl API
-                  response=$(curl -i -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/files/decompress" \
+                  response=$(curl -i -L -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/files/decompress" \
                     -H "Authorization: Bearer $API_KEY" \
                     -H "Content-Type: application/json" \
                     -d '{"root": "/", "file": "release.tar.gz"}' 2>&1) && echo "$response"
 
                   if [ $(echo "$response" | grep -c 'HTTP/.* 20[0-9]') -eq 0 ]; then
-                    echo "Error: Failed to decompress artifact on server." >&2
+                    echo "Error: Failed to decompress artifact on server. Full response: $response" >&2
                     exit 1
                   fi
 
-    start:
-        runs-on: ubuntu-latest
-        needs: decompress
-        steps:
             - name: Start Application on Server
               env:
                   PANEL_URL: ${{ secrets.PTERO_PANEL_URL }}
