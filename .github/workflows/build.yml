@@ -1,0 +1,73 @@
+name: Build and Package NestJS App with pnpm
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
+    workflow_dispatch:
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+
+        steps:
+            # 1. Клонирование репозитория
+            - name: Checkout repository
+              uses: actions/checkout@v3
+
+            # 2. Установка Node.js
+            - name: Setup Node.js
+              uses: actions/setup-node@v3
+              with:
+                  node-version: '20'
+                  cache: 'pnpm'
+
+            # 3. Установка pnpm
+            - name: Install pnpm
+              run: npm install -g pnpm
+
+            # 4. Установка зависимостей и сборка приложения
+            - name: Build and Start Application
+              run: |
+                  NPM_CMD="/usr/local/bin/npm"
+                  if [[ -d .git ]] && [[ ${AUTO_UPDATE} == "1" ]]; then git pull; fi
+                  if ! command -v pnpm &> /dev/null; then ${NPM_CMD} install -g pnpm --unsafe-perm; fi
+                  if [[ -n ${NODE_PACKAGES} ]]; then pnpm install ${NODE_PACKAGES}; fi
+                  if [[ -n ${UNNODE_PACKAGES} ]]; then pnpm uninstall ${UNNODE_PACKAGES}; fi
+                  if [[ -f /home/container/package.json ]]; then pnpm install && pnpm prisma generate; fi
+                  if [[ -f /home/container/package.json ]]; then pnpm build && pnpm start; fi
+
+            # 5. Архивирование сборки
+            - name: Archive build
+              run: |
+                  mkdir release
+                  cp -R dist package.json pnpm-lock.yaml node_modules release/
+                  cd release
+                  tar -czvf ../release.tar.gz .
+              shell: bash
+
+            # 6. Загрузка артефакта
+            - name: Upload artifact
+              uses: actions/upload-artifact@v3
+              with:
+                  name: nestjs-app-release
+                  path: release.tar.gz
+
+            # 7. Деплой на сервер через Pterodactyl
+            - name: Deploy to Pterodactyl
+              env:
+                  PANEL_URL: ${{ secrets.PTERO_PANEL_URL }}
+                  API_KEY: ${{ secrets.PTERO_API_KEY }}
+                  SERVER_ID: ${{ secrets.PTERO_SERVER_ID }}
+              run: |
+                  # Загрузка артефакта на сервер через Pterodactyl API
+                  curl -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/files/write?file=release.tar.gz" \
+                    -H "Authorization: Bearer $API_KEY" \
+                    -F "file=@release.tar.gz"
+
+                  # Распаковка артефакта и перезапуск сервера через Pterodactyl
+                  curl -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/command" \
+                    -H "Authorization: Bearer $API_KEY" \
+                    -H "Content-Type: application/json" \
+                    -d '{"command": "tar -xzvf release.tar.gz && npm run build && npm prisma migrate deploy && npm start"}'
