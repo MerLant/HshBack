@@ -21,13 +21,11 @@ jobs:
               uses: actions/setup-node@v3
               with:
                   node-version: '20'
-                  cache: 'pnpm'
 
-                  # 3. Установка pnpm
+            # 3. Установка pnpm
             - name: Install pnpm
               run: |
-                  corepack enable
-                  corepack prepare pnpm@latest --activate
+                  npm install -g pnpm
 
             # 4. Установка зависимостей и сборка приложения
             - name: Build and Start Application
@@ -38,6 +36,7 @@ jobs:
                   if [[ -n ${NODE_PACKAGES} ]]; then pnpm install ${NODE_PACKAGES}; fi
                   if [[ -n ${UNNODE_PACKAGES} ]]; then pnpm uninstall ${UNNODE_PACKAGES}; fi
                   if [[ -f /home/container/package.json ]]; then pnpm install && pnpm prisma generate; fi
+                  if [[ -f /home/container/docker/entrypoint.sh ]]; then bash /home/container/docker/entrypoint.sh; fi
                   if [[ -f /home/container/package.json ]]; then pnpm build && pnpm start; fi
 
             # 5. Архивирование сборки
