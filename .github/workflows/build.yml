@@ -10,40 +10,43 @@ on:
 jobs:
     build:
         runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                node-version: [20]
 
         steps:
             # 1. Checkout repository
             - name: Checkout repository
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
 
             # 2. Setup Node.js
-            - name: Setup Node.js
-              uses: actions/setup-node@v3
+            - name: Setup PNPM
+              uses: pnpm/action-setup@v4
+
+            - name: Use Node.js ${{ matrix.node-version }}
+              uses: actions/setup-node@v4
               with:
-                  node-version: '20'
+                  node-version: ${{ matrix.node-version }}
+                  cache: 'pnpm'
 
-            # 3. Install pnpm
-            - name: Install pnpm
-              run: corepack enable && corepack prepare pnpm@latest --activate
-
-            # 4. Install dependencies and build application
+            # 3. Install dependencies and build application
             - name: Install Dependencies and Build Application
               run: |
                   pnpm install
                   pnpm prisma generate
                   pnpm build
 
-            # 5. Archive build
+            # 4. Archive build
             - name: Archive build
               run: |
                   mkdir release
                   pnpm prune --prod
-                  cp -R dist package.json pnpm-lock.yaml node_modules release/
+                  cp -R dist package.json pnpm-lock.yaml release/
                   cd release
                   tar --exclude='./**/*.log' -czvf ../release.tar.gz .
               shell: bash
 
-            # 6. Upload artifact
+            # 5. Upload artifact
             - name: Upload artifact
               uses: actions/upload-artifact@v3
               with:
@@ -60,9 +63,6 @@ jobs:
               with:
                   name: nestjs-app-release
 
-            - name: Install jq
-              run: sudo apt-get update && sudo apt-get install -y jq
-
             - name: Upload Artifact via Pterodactyl API
               env:
                   PANEL_URL: ${{ secrets.PTERO_PANEL_URL }}
@@ -71,85 +71,59 @@ jobs:
               run: |
                   set -e  # Остановить выполнение при любой ошибке
 
-                  # Создание временных файлов для хранения ответа и логов
-                  RESPONSE_BODY=$(mktemp)
-                  RESPONSE_LOG=$(mktemp)
-
-                  # Запрос URL для загрузки файла с сохранением тела ответа и логов
                   echo "Запрашиваем URL для загрузки файла..."
-                  HTTP_STATUS=$(curl -X GET "$PANEL_URL/api/client/servers/$SERVER_ID/files/upload" \
+                  # Запрос URL для загрузки файла и захват статус-кода
+                  response=$(curl --silent --show-error -X GET "$PANEL_URL/api/client/servers/$SERVER_ID/files/upload" \
                     -H "Authorization: Bearer $API_KEY" \
                     -H "Accept: application/json" \
-                    -o "$RESPONSE_BODY" \
-                    -w "%{http_code}" \
-                    -v 2> "$RESPONSE_LOG")
+                    -w "HTTPSTATUS:%{http_code}")
 
-                  # Вывод отладочных логов
-                  echo "Отладочные логи запроса upload URL:"
-                  cat "$RESPONSE_LOG"
+                  # Извлечение тела ответа и статус-кода
+                  body=$(echo "$response" | sed -e 's/HTTPSTATUS\:.*//g')
+                  status=$(echo "$response" | tr -d '\n' | sed -e 's/.*HTTPSTATUS://')
 
-                  # Проверка HTTP статус-кода
-                  if [ "$HTTP_STATUS" -ne 200 ]; then
-                    echo "Error: Не удалось получить URL для загрузки файла на сервер. HTTP статус: $HTTP_STATUS" >&2
-                    echo "Ответ сервера: $(cat "$RESPONSE_BODY")"
+                  # Проверка статус-кода
+                  if [ "$status" -ne 200 ]; then
+                    echo "Error: Не удалось получить URL для загрузки файла на сервер. HTTP статус: $status" >&2
+                    echo "Ответ сервера: $body" >&2
                     exit 1
                   fi
 
                   # Извлечение upload_url из JSON-ответа
-                  upload_url=$(jq -r '.attributes.url' "$RESPONSE_BODY")
+                  upload_url=$(echo "$body" | grep -o '"url":"[^"]*"' | sed 's/"url":"\(.*\)"/\1/')
 
                   if [ -z "$upload_url" ] || [ "$upload_url" == "null" ]; then
                     echo "Error: Не удалось получить URL для загрузки файла на сервер."
-                    echo "Ответ сервера: $(cat "$RESPONSE_BODY")"
+                    echo "Ответ сервера: $body"
                     exit 1
                   fi
 
                   echo "URL для загрузки получен: $upload_url"
 
                   # Проверка наличия файла
-                  echo "Список файлов в рабочей директории:"
-                  ls -l
-
                   if [ ! -f "release.tar.gz" ]; then
                     echo "Error: Файл release.tar.gz не найден." >&2
                     exit 1
                   fi
 
-                  # Проверка размера файла
-                  FILE_SIZE=$(stat -c%s release.tar.gz)
-                  echo "Размер файла release.tar.gz: $FILE_SIZE байт"
-
-                  # Создание временных файлов для загрузки
-                  UPLOAD_BODY=$(mktemp)
-                  UPLOAD_LOG=$(mktemp)
-
-                  # Загрузка артефакта по предварительно подписанному URL с сохранением логов
                   echo "Начинаем загрузку артефакта..."
-                  UPLOAD_STATUS=$(curl -X POST "$upload_url" \
+                  # Загрузка артефакта и захват статус-кода
+                  upload_response=$(curl --silent --show-error -X POST "$upload_url" \
                     -F "files=@release.tar.gz" \
-                    -w "%{http_code}" \
-                    -o "$UPLOAD_BODY" \
-                    -v 2> "$UPLOAD_LOG")
+                    -w "HTTPSTATUS:%{http_code}")
 
-                  # Вывод отладочных логов загрузки артефакта
-                  echo "Отладочные логи загрузки артефакта:"
-                  cat "$UPLOAD_LOG"
-
-                  # Чтение ответа и статус-кода загрузки
-                  RESPONSE_UPLOAD=$(cat "$UPLOAD_BODY")
-                  echo "Ответ сервера при загрузке: $RESPONSE_UPLOAD"
+                  # Извлечение тела ответа и статус-кода загрузки
+                  upload_body=$(echo "$upload_response" | sed -e 's/HTTPSTATUS\:.*//g')
+                  upload_status=$(echo "$upload_response" | tr -d '\n' | sed -e 's/.*HTTPSTATUS://')
 
                   # Проверка статус-кода загрузки
-                  if [ "$UPLOAD_STATUS" -ne 200 ] && [ "$UPLOAD_STATUS" -ne 204 ]; then
-                    echo "Error: Не удалось загрузить артефакт на сервер. HTTP статус: $UPLOAD_STATUS" >&2
-                    echo "Ответ сервера при загрузке: $RESPONSE_UPLOAD" >&2
+                  if [ "$upload_status" -ne 200 ] && [ "$upload_status" -ne 204 ]; then
+                    echo "Error: Не удалось загрузить артефакт на сервер. HTTP статус: $upload_status" >&2
+                    echo "Ответ сервера при загрузке: $upload_body" >&2
                     exit 1
                   fi
 
                   echo "Артефакт успешно загружен на сервер."
-
-                  # Очистка временных файлов
-                  rm "$RESPONSE_BODY" "$RESPONSE_LOG" "$UPLOAD_BODY" "$UPLOAD_LOG"
               shell: /usr/bin/bash -e {0}
 
             - name: Decompress Artifact on Server
@@ -188,7 +162,7 @@ jobs:
                     -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/command" \
                     -H "Authorization: Bearer $API_KEY" \
                     -H "Content-Type: application/json" \
-                    -d '{"command": "pnpm prisma migrate deploy && pnpm start"}')
+                    -d '{"command": "/usr/local/bin/pnpm install --frozen-lockfile && /usr/local/bin/pnpm prisma migrate deploy && node dist/main"}')
 
                   if [ "$response" -ne 204 ]; then
                     echo "Error: Не удалось запустить приложение на сервере. HTTP статус: $response" >&2
