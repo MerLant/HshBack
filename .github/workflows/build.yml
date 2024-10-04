@@ -86,7 +86,7 @@ jobs:
                   echo "URL для загрузки получен: $upload_url"
 
                   # Загрузка артефакта по предварительно подписанному URL
-                  upload_status=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$upload_url" \
+                  upload_status=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$upload_url" \
                     -H "Content-Type: application/octet-stream" \
                     --data-binary "@release.tar.gz")
 
