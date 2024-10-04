@@ -41,7 +41,7 @@ jobs:
               run: |
                   mkdir release
                   pnpm prune --prod
-                  cp -R dist package.json pnpm-lock.yaml release/
+                  cp -R dist package.json pnpm-lock.yaml prisma release/
                   cd release
                   tar --exclude='./**/*.log' -czvf ../release.tar.gz .
               shell: bash
