@@ -24,19 +24,15 @@ jobs:
 
             # 3. Установка pnpm
             - name: Install pnpm
-              run: |
-                  npm install -g pnpm
+              run: npm install -g pnpm
 
             # 4. Установка зависимостей и сборка приложения
-            - name: Build and Start Application
+            - name: Install Dependencies and Build Application
               run: |
-                  NPM_CMD="/usr/local/bin/npm"
-                  ${NPM_CMD} install -g pnpm --unsafe-perm
-                  pnpm install ${NODE_PACKAGES}
-                  pnpm uninstall ${UNNODE_PACKAGES}
-                  pnpm install && pnpm prisma generate
-                  if [[ -f /home/container/docker/entrypoint.sh ]]; then bash /home/container/docker/entrypoint.sh; fi
-                  pnpm build && pnpm start
+                  pnpm install
+                  pnpm prisma generate
+                  pnpm build
+                  pnpm start
 
             # 5. Архивирование сборки
             - name: Archive build
