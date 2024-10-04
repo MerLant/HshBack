@@ -42,7 +42,9 @@ jobs:
                   cd release
                   tar --exclude='./**/*.log' -czvf ../release.tar.gz .
               shell: bash
-              # 6. Upload artifact
+
+            # 6. Upload artifact
+            - name: Upload artifact
               uses: actions/upload-artifact@v3
               with:
                   name: nestjs-app-release
