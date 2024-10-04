@@ -60,32 +60,14 @@ jobs:
               with:
                   name: nestjs-app-release
 
-            - name: Install jq
-              run: sudo apt-get update && sudo apt-get install -y jq
-
-            - name: Upload Artifact to Server
-              env:
-                  PANEL_URL: ${{ secrets.PTERO_PANEL_URL }}
-                  API_KEY: ${{ secrets.PTERO_API_KEY }}
-                  SERVER_ID: ${{ secrets.PTERO_SERVER_ID }}
-              run: |
-                  # Request upload URL from server
-                  upload_response=$(curl -s -X GET "$PANEL_URL/api/client/servers/$SERVER_ID/files/upload" \
-                    -H "Authorization: Bearer $API_KEY" \
-                    -H "Accept: application/json")
-
-                  upload_url=$(echo "$upload_response" | jq -r '.attributes.url')
-
-                  if [ -z "$upload_url" ] || [ "$upload_url" == "null" ]; then
-                    echo "Error: Failed to get upload URL from server."
-                    echo "Response: $upload_response"
-                    exit 1
-                  fi
-
-                  # Upload artifact to the URL
-                  curl -X PUT "$upload_url&directory=/" \
-                    -H "Content-Type: application/octet-stream" \
-                    --data-binary "@release.tar.gz"
+            - name: Upload Artifact via SFTP
+              uses: appleboy/scp-action@v0.1.1
+              with:
+                  host: ${{ secrets.PTERO_SFTP_HOST }}
+                  username: ${{ secrets.PTERO_SFTP_USERNAME }}
+                  password: ${{ secrets.PTERO_SFTP_PASSWORD }}
+                  source: 'release.tar.gz'
+                  target: '/home/container/'
 
             - name: Decompress Artifact on Server
               env:
@@ -93,16 +75,20 @@ jobs:
                   API_KEY: ${{ secrets.PTERO_API_KEY }}
                   SERVER_ID: ${{ secrets.PTERO_SERVER_ID }}
               run: |
-                  # Decompress artifact on server
-                  response=$(curl -s -o /dev/null -w "%{http_code}" \
+                  # Распаковка артефакта на сервере
+                  response=$(curl -s -w "\n%{http_code}" \
                     -L -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/files/decompress" \
                     -H "Authorization: Bearer $API_KEY" \
                     -H "Content-Type: application/json" \
                     -H "Accept: application/json" \
                     -d '{"root": "/", "file": "release.tar.gz"}')
 
-                  if [ "$response" -ne 204 ]; then
-                    echo "Error: Failed to decompress artifact on server. HTTP Status: $response" >&2
+                  http_body=$(echo "$response" | sed '$d')
+                  http_code=$(echo "$response" | tail -n1)
+
+                  if [ "$http_code" -ne 204 ]; then
+                    echo "Error: Failed to decompress artifact on server. HTTP Status: $http_code" >&2
+                    echo "Response Body: $http_body" >&2
                     exit 1
                   fi
 
@@ -112,7 +98,7 @@ jobs:
                   API_KEY: ${{ secrets.PTERO_API_KEY }}
                   SERVER_ID: ${{ secrets.PTERO_SERVER_ID }}
               run: |
-                  # Start application on server
+                  # Запуск приложения на сервере
                   response=$(curl -s -o /dev/null -w "%{http_code}" \
                     -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/command" \
                     -H "Authorization: Bearer $API_KEY" \
