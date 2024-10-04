@@ -74,7 +74,7 @@ jobs:
                     -H "Authorization: Bearer $API_KEY" \
                     -H "Accept: application/json")
 
-                  upload_url=$(echo "$upload_response" | jq -r '.object.url')
+                  upload_url=$(echo "$upload_response" | jq -r '.attributes.url')
 
                   if [ -z "$upload_url" ] || [ "$upload_url" == "null" ]; then
                     echo "Error: Failed to get upload URL from server."
