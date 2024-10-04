@@ -49,7 +49,7 @@ jobs:
                   name: nestjs-app-release
                   path: release.tar.gz
 
-    deploy:
+    prepare:
         runs-on: ubuntu-latest
         needs: build
         steps:
@@ -58,30 +58,48 @@ jobs:
               with:
                   name: nestjs-app-release
 
-            - name: Deploy to Pterodactyl
+            - name: Check for Existing Release on Server
               env:
                   PANEL_URL: ${{ secrets.PTERO_PANEL_URL }}
                   API_KEY: ${{ secrets.PTERO_API_KEY }}
                   SERVER_ID: ${{ secrets.PTERO_SERVER_ID }}
               run: |
-                  # Загрузка артефакта на сервер через Pterodactyl API с логикой повторных попыток
-                  n=0
-                  until [ "$n" -ge 5 ]
-                  do
-                    response=$(curl -i -L -c cookies.txt -b cookies.txt -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/files/write?file=%2Frelease.tar.gz" \
-                      -H "Authorization: Bearer $API_KEY" \
-                      -H "Content-Type: text/plain" \
-                      --data-binary "@release.tar.gz" 2>&1) && echo "$response" && [ $(echo "$response" | grep -c 'HTTP/.* 20[0-9]') -gt 0 ] && break
-                    n=$((n+1))
-                    echo "Retrying to upload artifact to server... ($n/5). Possible network issue or server unresponsive. Last response: $response"
-                    sleep 5
-                  done
+                  # Проверка наличия старого релиза на сервере
+                  response=$(curl -i -X GET "$PANEL_URL/api/client/servers/$SERVER_ID/files/contents?file=%2Frelease.tar.gz" \
+                    -H "Authorization: Bearer $API_KEY" \
+                    -H "Accept: application/json" 2>&1) && echo "$response"
 
-                  if [ "$n" -ge 5 ]; then
-                    echo "Error: Failed to upload artifact to server after multiple attempts. Please check URL, authentication credentials, and server logs for more details." >&2
+                  if [ $(echo "$response" | grep -c 'HTTP/.* 200') -eq 0 ]; then
+                    echo "No existing release found on server. Skipping deletion step." && exit 0
+                  fi
+
+            - name: Delete Old Release from Server
+              env:
+                  PANEL_URL: ${{ secrets.PTERO_PANEL_URL }}
+                  API_KEY: ${{ secrets.PTERO_API_KEY }}
+                  SERVER_ID: ${{ secrets.PTERO_SERVER_ID }}
+              run: |
+                  # Удаление старого архива с релизом
+                  response=$(curl -i -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/files/delete" \
+                    -H "Authorization: Bearer $API_KEY" \
+                    -H "Content-Type: application/json" \
+                    -d '{"root": "/", "files": ["release.tar.gz"]}' 2>&1) && echo "$response"
+
+                  if [ $(echo "$response" | grep -c 'HTTP/.* 20[0-9]') -eq 0 ]; then
+                    echo "Error: Failed to delete old release archive. Full response: $response" >&2
+                    # Проверка на редирект или проблему с методом
+                    if [ $(echo "$response" | grep -c 'HTTP/.* 302') -gt 0 ]; then
+                      echo "Error: Received a redirect (HTTP 302). Please verify the URL or authorization settings." >&2
+                    elif [ $(echo "$response" | grep -c 'HTTP/.* 405') -gt 0 ]; then
+                      echo "Error: Method Not Allowed (HTTP 405). Please verify if the correct HTTP method is being used." >&2
+                    fi
                     exit 1
                   fi
 
+    deploy:
+        runs-on: ubuntu-latest
+        needs: prepare
+        steps:
             - name: Decompress Artifact on Server
               env:
                   PANEL_URL: ${{ secrets.PTERO_PANEL_URL }}
@@ -92,6 +110,7 @@ jobs:
                   response=$(curl -i -L -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/files/decompress" \
                     -H "Authorization: Bearer $API_KEY" \
                     -H "Content-Type: application/json" \
+                    -H "Accept: application/json" \
                     -d '{"root": "/", "file": "release.tar.gz"}' 2>&1) && echo "$response"
 
                   if [ $(echo "$response" | grep -c 'HTTP/.* 20[0-9]') -eq 0 ]; then
@@ -105,17 +124,6 @@ jobs:
                   API_KEY: ${{ secrets.PTERO_API_KEY }}
                   SERVER_ID: ${{ secrets.PTERO_SERVER_ID }}
               run: |
-                  # Удаление старого архива с релизом
-                  response=$(curl -i -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/files/delete" \
-                    -H "Authorization: Bearer $API_KEY" \
-                    -H "Content-Type: application/json" \
-                    -d '{"root": "/", "files": ["release.tar.gz"]}' 2>&1) && echo "$response"
-
-                  if [ $(echo "$response" | grep -c 'HTTP/.* 20[0-9]') -eq 0 ]; then
-                    echo "Error: Failed to delete old release archive." >&2
-                    exit 1
-                  fi
-
                   # Запуск приложения на сервере через Pterodactyl API
                   response=$(curl -i -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/command" \
                     -H "Authorization: Bearer $API_KEY" \
