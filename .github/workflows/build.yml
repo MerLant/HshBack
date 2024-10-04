@@ -60,16 +60,17 @@ jobs:
                   n=0
                   until [ "$n" -ge 5 ]
                   do
-                    response=$(curl -i -L -c cookies.txt -b cookies.txt -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/files/write?file=release.tar.gz" \
+                    response=$(curl -i -L -c cookies.txt -b cookies.txt -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/files/write?file=%2Frelease.tar.gz" \
                       -H "Authorization: Bearer $API_KEY" \
-                      -F "file=@release.tar.gz" 2>&1) && echo "$response" && [ $(echo "$response" | grep -c 'HTTP/.* 20[0-9]') -gt 0 ] && break
+                      -H "Content-Type: text/plain" \
+                      --data-binary "@release.tar.gz" 2>&1) && echo "$response" && [ $(echo "$response" | grep -c 'HTTP/.* 20[0-9]') -gt 0 ] && break
                     n=$((n+1))
                     echo "Retrying to upload artifact to server... ($n/5). Possible network issue or server unresponsive. Last response: $response"
                     sleep 5
                   done
 
                   if [ "$n" -ge 5 ]; then
-                    echo "Error: Failed to upload artifact to server after multiple attempts" >&2
+                    echo "Error: Failed to upload artifact to server after multiple attempts. Please check URL, authentication credentials, and server logs for more details." >&2
                     exit 1
                   fi
 
@@ -87,6 +88,6 @@ jobs:
                   done
 
                   if [ "$n" -ge 5 ]; then
-                    echo "Error: Failed to execute deployment commands after multiple attempts" >&2
+                    echo "Error: Failed to execute deployment commands after multiple attempts. Please check server logs and command syntax for issues." >&2
                     exit 1
                   fi
