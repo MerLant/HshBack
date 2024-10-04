@@ -89,8 +89,8 @@ jobs:
                     exit 1
                   fi
 
-                  # Извлечение upload_url из JSON-ответа
-                  upload_url=$(echo "$body" | grep -o '"url":"[^"]*"' | sed 's/"url":"\(.*\)"/\1/')
+                  # Извлечение upload_url из JSON-ответа без использования jq
+                  upload_url=$(echo "$body" | grep -o '"url":"[^"]*"' | sed 's/"url":"\(.*\)"/\1/' | sed 's/\\\//\//g')
 
                   if [ -z "$upload_url" ] || [ "$upload_url" == "null" ]; then
                     echo "Error: Не удалось получить URL для загрузки файла на сервер."
