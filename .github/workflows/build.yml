@@ -24,7 +24,7 @@ jobs:
 
             # 3. Установка pnpm
             - name: Install pnpm
-              run: npm install -g pnpm
+              run: corepack enable && corepack prepare pnpm@latest --activate
 
             # 4. Установка зависимостей и сборка приложения
             - name: Install Dependencies and Build Application
@@ -32,15 +32,14 @@ jobs:
                   pnpm install
                   pnpm prisma generate
                   pnpm build
-                  pnpm start
 
             # 5. Архивирование сборки
             - name: Archive build
               run: |
                   mkdir release
-                  cp -R dist package.json pnpm-lock.yaml node_modules release/
+                  pnpm prune --prod && cp -R dist package.json pnpm-lock.yaml node_modules release/
                   cd release
-                  tar -czvf ../release.tar.gz .
+                  tar --exclude='./**/*.log' -czvf ../release.tar.gz .
               shell: bash
 
             # 6. Загрузка артефакта
@@ -57,13 +56,37 @@ jobs:
                   API_KEY: ${{ secrets.PTERO_API_KEY }}
                   SERVER_ID: ${{ secrets.PTERO_SERVER_ID }}
               run: |
-                  # Загрузка артефакта на сервер через Pterodactyl API
-                  curl -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/files/write?file=release.tar.gz" \
-                    -H "Authorization: Bearer $API_KEY" \
-                    -F "file=@release.tar.gz"
+                  # Загрузка артефакта на сервер через Pterodactyl API с логикой повторных попыток
+                  n=0
+                  until [ "$n" -ge 5 ]
+                  do
+                    curl -f -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/files/write?file=release.tar.gz" \
+                      -H "Authorization: Bearer $API_KEY" \
+                      -F "file=@release.tar.gz" && break
+                    n=$((n+1))
+                    echo "Retrying to upload artifact to server... ($n/5). Possible network issue or server unresponsive."
+                    sleep 5
+                  done
 
-                  # Распаковка артефакта и перезапуск сервера через Pterodactyl
-                  curl -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/command" \
-                    -H "Authorization: Bearer $API_KEY" \
-                    -H "Content-Type: application/json" \
-                    -d '{"command": "tar -xzvf release.tar.gz && npm run build && npm prisma migrate deploy && npm start"}'
+                  if [ "$n" -ge 5 ]; then
+                    echo "Error: Failed to upload artifact to server after multiple attempts" >&2
+                    exit 1
+                  fi
+
+                  # Распаковка артефакта и перезапуск сервера через Pterodactyl с логикой повторных попыток
+                  n=0
+                  until [ "$n" -ge 5 ]
+                  do
+                    curl -f -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/command" \
+                      -H "Authorization: Bearer $API_KEY" \
+                      -H "Content-Type: application/json" \
+                      -d '{"command": "tar -xzvf release.tar.gz && pnpm prisma migrate deploy && pnpm start"}' && break
+                    n=$((n+1))
+                    echo "Retrying to execute deployment commands... ($n/5)"
+                    sleep 5
+                  done
+
+                  if [ "$n" -ge 5 ]; then
+                    echo "Error: Failed to execute deployment commands after multiple attempts" >&2
+                    exit 1
+                  fi
