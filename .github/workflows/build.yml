@@ -69,37 +69,21 @@ jobs:
                   API_KEY: ${{ secrets.PTERO_API_KEY }}
                   SERVER_ID: ${{ secrets.PTERO_SERVER_ID }}
               run: |
-                  # Создание временных файлов для хранения ответа и логов
-                  RESPONSE_BODY=$(mktemp)
-                  RESPONSE_LOG=$(mktemp)
-
-                  # Запрос URL для загрузки файла с сохранением тела ответа и логов
+                  # Запрос URL для загрузки файла
                   echo "Запрашиваем URL для загрузки файла..."
-                  curl -X GET "$PANEL_URL/api/client/servers/$SERVER_ID/files/upload" \
+                  upload_response=$(curl --silent --show-error -X GET "$PANEL_URL/api/client/servers/$SERVER_ID/files/upload" \
                     -H "Authorization: Bearer $API_KEY" \
-                    -H "Accept: application/json" \
-                    -o "$RESPONSE_BODY" \
-                    -w "%{http_code}" \
-                    -v 2> "$RESPONSE_LOG"
+                    -H "Accept: application/json")
 
-                  # Вывод отладочных логов
-                  echo "Отладочные логи запроса upload URL:"
-                  cat "$RESPONSE_LOG"
+                  echo "Ответ на запрос upload URL:"
+                  echo "$upload_response"
 
-                  # Проверка HTTP статус-кода
-                  HTTP_STATUS=$(cat "$RESPONSE_BODY")
-                  # Проверяем, содержит ли тело ответа только JSON или включает статус-код
-                  # В данном случае, предполагается, что тело содержит только JSON
-                  # Если используется -w "%{http_code}", то нужно скорректировать
-                  # В данном примере предполагается, что HTTP статус не включен в тело
-
-                  # Извлечение URL из JSON-ответа
-                  upload_url=$(jq -r '.attributes.url' "$RESPONSE_BODY")
+                  # Извлечение URL из ответа
+                  upload_url=$(echo "$upload_response" | jq -r '.attributes.url')
 
                   if [ -z "$upload_url" ] || [ "$upload_url" == "null" ]; then
                     echo "Error: Не удалось получить URL для загрузки файла на сервер."
-                    echo "Ответ сервера: $(cat "$RESPONSE_BODY")"
-                    rm "$RESPONSE_BODY" "$RESPONSE_LOG"
+                    echo "Ответ сервера: $upload_response"
                     exit 1
                   fi
 
@@ -108,41 +92,21 @@ jobs:
                   # Проверка наличия файла
                   if [ ! -f "release.tar.gz" ]; then
                     echo "Error: Файл release.tar.gz не найден." >&2
-                    rm "$RESPONSE_BODY" "$RESPONSE_LOG"
                     exit 1
                   fi
 
-                  # Загрузка артефакта по предварительно подписанному URL с сохранением логов
+                  # Загрузка артефакта по предварительно подписанному URL
                   echo "Начинаем загрузку артефакта..."
-                  UPLOAD_RESPONSE_BODY=$(mktemp)
-                  UPLOAD_RESPONSE_LOG=$(mktemp)
+                  upload_status=$(curl --silent --show-error -X POST "$upload_url" \
+                    -F "file=@release.tar.gz" \
+                    -w "%{http_code}")
 
-                  curl -X POST "$upload_url" \
-                    -H "Content-Type: application/octet-stream" \
-                    --data-binary "@release.tar.gz" \
-                    -o "$UPLOAD_RESPONSE_BODY" \
-                    -w "%{http_code}" \
-                    -v 2> "$UPLOAD_RESPONSE_LOG"
-
-                  # Вывод отладочных логов загрузки артефакта
-                  echo "Отладочные логи загрузки артефакта:"
-                  cat "$UPLOAD_RESPONSE_LOG"
-
-                  # Извлечение HTTP статус-кода
-                  HTTP_UPLOAD_STATUS=$(cat "$UPLOAD_RESPONSE_BODY")
-
-                  # Проверка статус-кода
-                  if [ "$HTTP_UPLOAD_STATUS" -ne 200 ] && [ "$HTTP_UPLOAD_STATUS" -ne 204 ]; then
-                    echo "Error: Не удалось загрузить артефакт на сервер. HTTP статус: $HTTP_UPLOAD_STATUS" >&2
-                    echo "Ответ сервера при загрузке: $(cat "$UPLOAD_RESPONSE_BODY")" >&2
-                    rm "$RESPONSE_BODY" "$RESPONSE_LOG" "$UPLOAD_RESPONSE_BODY" "$UPLOAD_RESPONSE_LOG"
+                  if [ "$upload_status" -ne 200 ] && [ "$upload_status" -ne 204 ]; then
+                    echo "Error: Не удалось загрузить артефакт на сервер. HTTP статус: $upload_status" >&2
                     exit 1
                   fi
 
                   echo "Артефакт успешно загружен на сервер."
-
-                  # Очистка временных файлов
-                  rm "$RESPONSE_BODY" "$RESPONSE_LOG" "$UPLOAD_RESPONSE_BODY" "$UPLOAD_RESPONSE_LOG"
               shell: /usr/bin/bash -e {0}
 
             - name: Decompress Artifact on Server
