@@ -60,7 +60,7 @@ jobs:
                   n=0
                   until [ "$n" -ge 5 ]
                   do
-                    response=$(curl -i -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/files/write?file=release.tar.gz" \
+                    response=$(curl -i -L -c cookies.txt -b cookies.txt -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/files/write?file=release.tar.gz" \
                       -H "Authorization: Bearer $API_KEY" \
                       -F "file=@release.tar.gz" 2>&1) && echo "$response" && [ $(echo "$response" | grep -c 'HTTP/.* 20[0-9]') -gt 0 ] && break
                     n=$((n+1))
@@ -77,7 +77,7 @@ jobs:
                   n=0
                   until [ "$n" -ge 5 ]
                   do
-                    response=$(curl -i -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/command" \
+                    response=$(curl -i -L -c cookies.txt -b cookies.txt -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/command" \
                       -H "Authorization: Bearer $API_KEY" \
                       -H "Content-Type: application/json" \
                       -d '{"command": "tar -xzvf release.tar.gz && pnpm prisma migrate deploy && pnpm start"}' 2>&1) && echo "$response" && [ $(echo "$response" | grep -c 'HTTP/.* 20[0-9]') -gt 0 ] && break
