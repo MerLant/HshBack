@@ -60,11 +60,11 @@ jobs:
                   n=0
                   until [ "$n" -ge 5 ]
                   do
-                    curl -f -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/files/write?file=release.tar.gz" \
+                    response=$(curl -i -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/files/write?file=release.tar.gz" \
                       -H "Authorization: Bearer $API_KEY" \
-                      -F "file=@release.tar.gz" && break
+                      -F "file=@release.tar.gz" 2>&1) && echo "$response" && [ $(echo "$response" | grep -c 'HTTP/.* 20[0-9]') -gt 0 ] && break
                     n=$((n+1))
-                    echo "Retrying to upload artifact to server... ($n/5). Possible network issue or server unresponsive."
+                    echo "Retrying to upload artifact to server... ($n/5). Possible network issue or server unresponsive. Last response: $response"
                     sleep 5
                   done
 
@@ -77,12 +77,12 @@ jobs:
                   n=0
                   until [ "$n" -ge 5 ]
                   do
-                    curl -f -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/command" \
+                    response=$(curl -i -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/command" \
                       -H "Authorization: Bearer $API_KEY" \
                       -H "Content-Type: application/json" \
-                      -d '{"command": "tar -xzvf release.tar.gz && pnpm prisma migrate deploy && pnpm start"}' && break
+                      -d '{"command": "tar -xzvf release.tar.gz && pnpm prisma migrate deploy && pnpm start"}' 2>&1) && echo "$response" && [ $(echo "$response" | grep -c 'HTTP/.* 20[0-9]') -gt 0 ] && break
                     n=$((n+1))
-                    echo "Retrying to execute deployment commands... ($n/5)"
+                    echo "Retrying to execute deployment commands... ($n/5). Possible network issue or server unresponsive. Last response: $response"
                     sleep 5
                   done
 
