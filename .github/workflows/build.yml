@@ -159,10 +159,10 @@ jobs:
               run: |
                   # Запуск приложения на сервере
                   response=$(curl -s -o /dev/null -w "%{http_code}" \
-                    -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/command" \
+                    -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/power" \
                     -H "Authorization: Bearer $API_KEY" \
                     -H "Content-Type: application/json" \
-                    -d '{"command": "/usr/local/bin/pnpm install --frozen-lockfile && /usr/local/bin/pnpm prisma migrate deploy && node dist/main"}')
+                    -d '{"signal": "restart"}')
 
                   if [ "$response" -ne 204 ]; then
                     echo "Error: Не удалось запустить приложение на сервере. HTTP статус: $response" >&2
