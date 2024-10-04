@@ -23,9 +23,11 @@ jobs:
                   node-version: '20'
                   cache: 'pnpm'
 
-            # 3. Установка pnpm
+                  # 3. Установка pnpm
             - name: Install pnpm
-              run: npm install -g pnpm
+              run: |
+                  corepack enable
+                  corepack prepare pnpm@latest --activate
 
             # 4. Установка зависимостей и сборка приложения
             - name: Build and Start Application
