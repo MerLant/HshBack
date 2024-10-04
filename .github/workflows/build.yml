@@ -70,9 +70,12 @@ jobs:
                   SERVER_ID: ${{ secrets.PTERO_SERVER_ID }}
               run: |
                   # Запрос URL для загрузки файла
-                  upload_response=$(curl -s -X GET "$PANEL_URL/api/client/servers/$SERVER_ID/files/upload" \
+                  upload_response=$(curl -v -X GET "$PANEL_URL/api/client/servers/$SERVER_ID/files/upload" \
                     -H "Authorization: Bearer $API_KEY" \
-                    -H "Accept: application/json")
+                    -H "Accept: application/json" 2>&1)
+
+                  echo "Ответ на запрос upload URL:"
+                  echo "$upload_response"
 
                   # Извлечение URL из ответа
                   upload_url=$(echo "$upload_response" | jq -r '.attributes.url')
@@ -85,17 +88,31 @@ jobs:
 
                   echo "URL для загрузки получен: $upload_url"
 
-                  # Загрузка артефакта по предварительно подписанному URL
-                  upload_status=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$upload_url" \
-                    -H "Content-Type: application/octet-stream" \
-                    --data-binary "@release.tar.gz")
+                  # Проверка наличия файла
+                  if [ ! -f "release.tar.gz" ]; then
+                    echo "Error: Файл release.tar.gz не найден." >&2
+                    exit 1
+                  fi
 
-                  if [ "$upload_status" -ne 200 ] && [ "$upload_status" -ne 204 ]; then
-                    echo "Error: Не удалось загрузить артефакт на сервер. HTTP статус: $upload_status" >&2
+                  # Загрузка артефакта по предварительно подписанному URL с подробным логом
+                  echo "Начинаем загрузку артефакта..."
+                  upload_response=$(curl -v -X POST "$upload_url" \
+                    -H "Content-Type: application/octet-stream" \
+                    --data-binary "@release.tar.gz" 2>&1)
+
+                  echo "Ответ на загрузку артефакта:"
+                  echo "$upload_response"
+
+                  # Извлечение HTTP статус-кода из ответа
+                  http_code=$(echo "$upload_response" | grep -oE 'HTTP/[0-9.]+\s[0-9]{3}' | tail -1 | awk '{print $2}')
+
+                  if [ "$http_code" -ne 200 ] && [ "$http_code" -ne 204 ]; then
+                    echo "Error: Не удалось загрузить артефакт на сервер. HTTP статус: $http_code" >&2
                     exit 1
                   fi
 
                   echo "Артефакт успешно загружен на сервер."
+              shell: /usr/bin/bash -e {0}
 
             - name: Decompress Artifact on Server
               env:
