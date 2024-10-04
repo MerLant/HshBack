@@ -42,9 +42,7 @@ jobs:
                   cd release
                   tar --exclude='./**/*.log' -czvf ../release.tar.gz .
               shell: bash
-
-            # 6. Upload artifact
-            - name: Upload artifact
+              # 6. Upload artifact
               uses: actions/upload-artifact@v3
               with:
                   name: nestjs-app-release
@@ -60,14 +58,42 @@ jobs:
               with:
                   name: nestjs-app-release
 
-            - name: Upload Artifact via SFTP
-              uses: appleboy/scp-action@v0.1.1
-              with:
-                  host: ${{ secrets.PTERO_SFTP_HOST }}
-                  username: ${{ secrets.PTERO_SFTP_USERNAME }}
-                  password: ${{ secrets.PTERO_SFTP_PASSWORD }}
-                  source: 'release.tar.gz'
-                  target: '/home/container/'
+            - name: Install jq
+              run: sudo apt-get update && sudo apt-get install -y jq
+
+            - name: Upload Artifact via Pterodactyl API
+              env:
+                  PANEL_URL: ${{ secrets.PTERO_PANEL_URL }}
+                  API_KEY: ${{ secrets.PTERO_API_KEY }}
+                  SERVER_ID: ${{ secrets.PTERO_SERVER_ID }}
+              run: |
+                  # Запрос URL для загрузки файла
+                  upload_response=$(curl -s -X GET "$PANEL_URL/api/client/servers/$SERVER_ID/files/upload" \
+                    -H "Authorization: Bearer $API_KEY" \
+                    -H "Accept: application/json")
+
+                  # Извлечение URL из ответа
+                  upload_url=$(echo "$upload_response" | jq -r '.attributes.url')
+
+                  if [ -z "$upload_url" ] || [ "$upload_url" == "null" ]; then
+                    echo "Error: Не удалось получить URL для загрузки файла на сервер."
+                    echo "Ответ сервера: $upload_response"
+                    exit 1
+                  fi
+
+                  echo "URL для загрузки получен: $upload_url"
+
+                  # Загрузка артефакта по предварительно подписанному URL
+                  upload_status=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$upload_url" \
+                    -H "Content-Type: application/octet-stream" \
+                    --data-binary "@release.tar.gz")
+
+                  if [ "$upload_status" -ne 200 ] && [ "$upload_status" -ne 204 ]; then
+                    echo "Error: Не удалось загрузить артефакт на сервер. HTTP статус: $upload_status" >&2
+                    exit 1
+                  fi
+
+                  echo "Артефакт успешно загружен на сервер."
 
             - name: Decompress Artifact on Server
               env:
@@ -87,10 +113,12 @@ jobs:
                   http_code=$(echo "$response" | tail -n1)
 
                   if [ "$http_code" -ne 204 ]; then
-                    echo "Error: Failed to decompress artifact on server. HTTP Status: $http_code" >&2
-                    echo "Response Body: $http_body" >&2
+                    echo "Error: Не удалось распаковать артефакт на сервере. HTTP статус: $http_code" >&2
+                    echo "Тело ответа: $http_body" >&2
                     exit 1
                   fi
+
+                  echo "Артефакт успешно распакован на сервере."
 
             - name: Start Application on Server
               env:
@@ -106,6 +134,8 @@ jobs:
                     -d '{"command": "pnpm prisma migrate deploy && pnpm start"}')
 
                   if [ "$response" -ne 204 ]; then
-                    echo "Error: Failed to start application on server. HTTP Status: $response" >&2
+                    echo "Error: Не удалось запустить приложение на сервере. HTTP статус: $response" >&2
                     exit 1
                   fi
+
+                  echo "Приложение успешно запущено на сервере."
