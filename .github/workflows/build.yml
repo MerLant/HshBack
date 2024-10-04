@@ -60,15 +60,30 @@ jobs:
               with:
                   name: nestjs-app-release
 
+            - name: Install jq
+              run: sudo apt-get update && sudo apt-get install -y jq
+
             - name: Upload Artifact to Server
               env:
                   PANEL_URL: ${{ secrets.PTERO_PANEL_URL }}
                   API_KEY: ${{ secrets.PTERO_API_KEY }}
                   SERVER_ID: ${{ secrets.PTERO_SERVER_ID }}
               run: |
-                  # Upload artifact to server
-                  curl -X POST "$PANEL_URL/api/client/servers/$SERVER_ID/files/write?file=release.tar.gz" \
+                  # Request upload URL from server
+                  upload_response=$(curl -s -X GET "$PANEL_URL/api/client/servers/$SERVER_ID/files/upload" \
                     -H "Authorization: Bearer $API_KEY" \
+                    -H "Accept: application/json")
+
+                  upload_url=$(echo "$upload_response" | jq -r '.object.url')
+
+                  if [ -z "$upload_url" ] || [ "$upload_url" == "null" ]; then
+                    echo "Error: Failed to get upload URL from server."
+                    echo "Response: $upload_response"
+                    exit 1
+                  fi
+
+                  # Upload artifact to the URL
+                  curl -X PUT "$upload_url&directory=/" \
                     -H "Content-Type: application/octet-stream" \
                     --data-binary "@release.tar.gz"
 
@@ -86,7 +101,7 @@ jobs:
                     -H "Accept: application/json" \
                     -d '{"root": "/", "file": "release.tar.gz"}')
 
-                  if [ "$response" -ne 200 ]; then
+                  if [ "$response" -ne 204 ]; then
                     echo "Error: Failed to decompress artifact on server. HTTP Status: $response" >&2
                     exit 1
                   fi
@@ -104,7 +119,7 @@ jobs:
                     -H "Content-Type: application/json" \
                     -d '{"command": "pnpm prisma migrate deploy && pnpm start"}')
 
-                  if [ "$response" -ne 200 ]; then
+                  if [ "$response" -ne 204 ]; then
                     echo "Error: Failed to start application on server. HTTP Status: $response" >&2
                     exit 1
                   fi
