@@ -336,10 +336,10 @@ export class AuthService {
 	 * Получает сессию по уникальному идентификатору токена провайдера.
 	 *
 	 * @param {string} providerTokenId - Уникальный идентификатор токена провайдера.
-	 * @returns {Promise<Session | null>} Объект сессии или null, если сессия не найдена.
+	 * @returns {Promise<Session[]>} Объект сессии или null, если сессия не найдена.
 	 */
-	private async getSessionByProviderTokenId(providerTokenId: string): Promise<Session | null> {
-		return this.prismaService.session.findUnique({
+	private async getSessionByProviderTokenId(providerTokenId: string): Promise<Session[]> {
+		return this.prismaService.session.findMany({
 			where: {
 				providerTokenId: providerTokenId,
 			},
@@ -514,7 +514,6 @@ export class AuthService {
 			throw new HttpException('The provider is null, where it cannot be', HttpStatus.NOT_FOUND);
 		}
 
-		// Проверяем, есть ли токен провайдера
 		let providerToken = await this.checkProviderToken(yandexToken);
 		if (!providerToken) {
 			providerToken = await this.createProviderToken(yandexToken, provider, yandexProvider);
@@ -522,7 +521,6 @@ export class AuthService {
 
 		const { refreshToken, accessToken } = await this.auth(user, userAgent);
 
-		// Создаём новую сессию с использованием существующего providerToken
 		await this.createSession(providerToken.id, refreshToken.id);
 
 		return { accessToken, refreshToken };
