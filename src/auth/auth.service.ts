@@ -60,33 +60,31 @@ export class AuthService {
 				throw new HttpException('Logout failed: No refresh token provided.', HttpStatus.BAD_REQUEST);
 			}
 
+			// Ищем рефреш-токен в базе данных
 			const token = await this.prismaService.token.findUnique({
-				where: {
-					token: refreshToken,
-				},
+				where: { token: refreshToken },
 			});
 
-			const session = await this.prismaService.session.findFirst({
-				where: {
-					refreshTokenId: token.id,
-				},
-			});
-
-			// Если токен не найден, прекращаем выполнение и возвращаем ошибку.
 			if (!token) {
 				this.logger.error('Token not found.');
 				throw new HttpException('Logout failed: Token not found.', HttpStatus.NOT_FOUND);
 			}
 
-			// Проверяем наличие связанной сессии
-			if (!session) {
-				this.logger.error('Session not found for the token.');
-				throw new HttpException('Logout failed: Session not found.', HttpStatus.NOT_FOUND);
+			// Ищем и удаляем сессию, связанную с этим токеном
+			const session = await this.prismaService.session.findFirst({
+				where: { refreshTokenId: token.id },
+			});
+
+			if (session) {
+				await this.prismaService.session.delete({ where: { id: session.id } });
 			}
 
-			await this.deleteRefreshTokenById(token.id);
+			// Удаляем рефреш-токен после удаления сессии
+			await this.prismaService.token.delete({ where: { id: token.id } });
+
+			// Очищаем куки
 			await this.clearCookie(res);
-			return res.sendStatus(HttpStatus.OK);
+			res.sendStatus(HttpStatus.OK);
 		} catch (error) {
 			this.logger.error('Error during logout:', error.message);
 			throw new HttpException(`Logout failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -501,36 +499,30 @@ export class AuthService {
 	async authYandexUser(yandexToken: string, userAgent: string): Promise<Tokens> {
 		const yandexUserId = await this.getUserIdFromYandex(yandexToken);
 		const yandexProvider = await this.prismaService.providerType.findFirst({
-			where: {
-				name: 'YANDEX',
-			},
+			where: { name: 'YANDEX' },
 		});
 
-		let user: User | undefined;
+		let user: User;
 		if (await this.isRegistered(yandexUserId, yandexProvider)) {
 			user = await this.getUser(yandexUserId, yandexProvider);
 		} else {
 			user = await this.registerUser(yandexToken, yandexUserId, yandexProvider);
 		}
 
-		if (!user) {
-			this.logger.error('Authorization error via Yandex');
-			throw new HttpException('Authorization error via Yandex', HttpStatus.INTERNAL_SERVER_ERROR);
-		}
-
-		const provider: Provider | null = await this.getProvider(user, yandexProvider);
+		const provider = await this.getProvider(user, yandexProvider);
 		if (!provider) {
-			this.logger.error('The provider is null, where it cannot be');
 			throw new HttpException('The provider is null, where it cannot be', HttpStatus.NOT_FOUND);
 		}
 
-		let providerToken: ProviderToken | null = await this.checkProviderToken(yandexToken);
+		// Проверяем, есть ли токен провайдера
+		let providerToken = await this.checkProviderToken(yandexToken);
 		if (!providerToken) {
 			providerToken = await this.createProviderToken(yandexToken, provider, yandexProvider);
 		}
 
 		const { refreshToken, accessToken } = await this.auth(user, userAgent);
 
+		// Создаём новую сессию с использованием существующего providerToken
 		await this.createSession(providerToken.id, refreshToken.id);
 
 		return { accessToken, refreshToken };
