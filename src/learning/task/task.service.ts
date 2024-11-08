@@ -127,7 +127,7 @@ export class TaskService {
 
 		try {
 			const response = await axios.post<ExecutionResponse>(
-				`http://${this.configService.get('PISOTN_IP')}:2000/api/v2/execute/`,
+				`${this.configService.get('PISOTN_IP')}/api/v2/execute/`,
 				data,
 			);
 
@@ -160,10 +160,10 @@ export class TaskService {
 			},
 		});
 
-		let passedTestsCount = 0;
-
-		for (const test of task.TaskTest) {
+		// Асинхронное выполнение всех тестов
+		const testPromises = task.TaskTest.map(async (test) => {
 			const output = await this.executeRequest(code, test.input, task);
+			const isPassed = output.run.code === 0 && test.output === output.run.output.trim();
 
 			await this.prismaService.solution.create({
 				data: {
@@ -171,14 +171,17 @@ export class TaskService {
 					input: test.input,
 					output: output.run.output.trim(),
 					statusCode: output.run.code,
-					isPassed: test.output === output.run.output.trim(),
+					isPassed,
 				},
 			});
 
-			if (output.run.code === 0 && test.output === output.run.output.trim()) {
-				passedTestsCount++;
-			}
-		}
+			return isPassed;
+		});
+
+		const results = await Promise.all(testPromises);
+
+		// Подсчет успешно пройденных тестов
+		const passedTestsCount = results.filter((result) => result).length;
 
 		return {
 			taskId: taskId,
