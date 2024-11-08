@@ -65,7 +65,7 @@ model Solution {
     input      String  @db.Text
     output     String? @db.Text
     isPassed   Boolean @map("is_passed")
-    statusCode Int
+    statusCode Int?
 
     Build Build @relation(fields: [buildId], references: [id], onDelete: Cascade)
 

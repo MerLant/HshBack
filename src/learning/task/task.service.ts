@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '@prisma/prisma.service';
 import { Task } from '@prisma/client';
 import { CreateTaskDto, UpdateTaskDto } from './dto/';
@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class TaskService {
+	private readonly logger = new Logger(TaskService.name);
 	constructor(
 		private prismaService: PrismaService,
 		private roleService: RoleService,
@@ -108,7 +109,7 @@ export class TaskService {
 		return tasks;
 	}
 
-	async executeRequest(code: string, input: string, task: Partial<Task>) {
+	async executeRequest(code: string, input: string, task: Partial<Task>): Promise<ExecutionResponse> {
 		const data = {
 			language: 'c#',
 			version: 'x',
@@ -133,8 +134,8 @@ export class TaskService {
 
 			return response.data;
 		} catch (error) {
-			console.error('Error executing request:', error);
-			throw error;
+			this.logger.error('Error executing request:', error);
+			throw new Error('Failed to execute code');
 		}
 	}
 
@@ -162,20 +163,26 @@ export class TaskService {
 
 		// Асинхронное выполнение всех тестов
 		const testPromises = task.TaskTest.map(async (test) => {
-			const output = await this.executeRequest(code, test.input, task);
-			const isPassed = output.run.code === 0 && test.output === output.run.output.trim();
+			try {
+				const output = await this.executeRequest(code, test.input, task);
+				const isPassed = output.run.code === 0 && test.output === output.run.output.trim();
 
-			await this.prismaService.solution.create({
-				data: {
-					buildId: build.id,
-					input: test.input,
-					output: output.run.output.trim(),
-					statusCode: output.run.code,
-					isPassed,
-				},
-			});
+				await this.prismaService.solution.create({
+					data: {
+						buildId: build.id,
+						input: test.input,
+						output: output.run.output.trim(),
+						statusCode: output.run.code,
+						isPassed,
+					},
+				});
 
-			return isPassed;
+				return isPassed;
+			} catch (error) {
+				this.logger.error(`Error executing test input "${test.input}":`, error);
+				// Решите, как обрабатывать ошибки: считать тест не пройденным или пробросить ошибку
+				return false;
+			}
 		});
 
 		const results = await Promise.all(testPromises);
