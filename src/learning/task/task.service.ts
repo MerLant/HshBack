@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '@prisma/prisma.service';
 import { Task } from '@prisma/client';
 import { CreateTaskDto, UpdateTaskDto } from './dto/';
@@ -140,6 +140,10 @@ export class TaskService {
 	}
 
 	async executeTestsForTask(userId: string, taskId: number, code: string): Promise<TestResultsSummary> {
+		if (code === '') {
+			throw new BadRequestException("Code can't be empty");
+		}
+
 		const task = await this.prismaService.task.findUnique({
 			where: { id: taskId },
 			include: { TaskTest: true },
