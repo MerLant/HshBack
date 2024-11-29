@@ -54,22 +54,50 @@ export class TaskService {
 
 	async update(id: number, updateTaskDto: UpdateTaskDto): Promise<Task> {
 		const { tests, ...taskData } = updateTaskDto;
-		const existingTask = await this.prismaService.task.findUnique({ where: { id } });
+		const existingTask = await this.prismaService.task.findUnique({
+			where: { id },
+			include: { TaskTest: true },
+		});
 
 		if (!existingTask) {
 			throw new NotFoundException(`Task with ID ${id} not found`);
 		}
 
-		await this.prismaService.taskTest.deleteMany({ where: { taskId: id } });
+		return this.prismaService.$transaction(async (prisma) => {
+			const updatedTask = await prisma.task.update({
+				where: { id },
+				data: { ...taskData },
+			});
 
-		return this.prismaService.task.update({
-			where: { id },
-			data: {
-				...taskData,
-				TaskTest: {
-					create: tests,
-				},
-			},
+			if (tests) {
+				const existingTestIds = existingTask.TaskTest.map((test) => test.id);
+				const incomingTestIds = tests.filter((test) => test.id).map((test) => test.id);
+
+				// Удаление тестов, которых нет в входящих данных
+				const testsToDelete = existingTestIds.filter((id) => !incomingTestIds.includes(id));
+				await prisma.taskTest.deleteMany({ where: { id: { in: testsToDelete } } });
+
+				// Обновление и создание тестов
+				for (const test of tests) {
+					if (test.id) {
+						// Обновление существующего теста
+						await prisma.taskTest.update({
+							where: { id: test.id },
+							data: { input: test.input, output: test.output },
+						});
+					} else {
+						// Создание нового теста
+						await prisma.taskTest.create({
+							data: { taskId: id, input: test.input, output: test.output },
+						});
+					}
+				}
+			} else {
+				// Если тесты не предоставлены, удаляем все связанные тесты
+				await prisma.taskTest.deleteMany({ where: { taskId: id } });
+			}
+
+			return updatedTask;
 		});
 	}
 

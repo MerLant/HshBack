@@ -1,6 +1,6 @@
 import { IsArray, IsBoolean, IsInt, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { TestTaskDto } from 'src/learning/task/dto/test-task.dto';
+import { TestTaskDto } from './test-task.dto';
 
 export class UpdateTaskDto {
 	@IsString()

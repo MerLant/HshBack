@@ -1,6 +1,10 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional } from 'class-validator';
 
 export class TestTaskDto {
+	@IsString()
+	@IsOptional()
+	id?: string;
+
 	@IsString()
 	input: string;
 
