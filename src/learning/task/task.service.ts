@@ -17,19 +17,30 @@ export class TaskService {
 		private readonly configService: ConfigService,
 	) {}
 
-	async create(createTaskDto: CreateTaskDto): Promise<Task> {
+	async create(createTaskDto: CreateTaskDto): Promise<any> {
+		// Возвращает TaskResponse
 		const { tests, ...taskData } = createTaskDto;
-		return this.prismaService.task.create({
+		const task = await this.prismaService.task.create({
 			data: {
 				...taskData,
 				TaskTest: {
 					create: tests,
 				},
 			},
+			include: {
+				TaskTest: true,
+			},
 		});
+
+		const { TaskTest, ...otherFields } = task;
+		return {
+			...otherFields,
+			tests: TaskTest,
+		};
 	}
 
-	async findOne(id: number, userJP: JwtPayload): Promise<Task | null> {
+	async findOne(id: number, userJP: JwtPayload): Promise<any> {
+		// Возвращает TaskResponse
 		const isTeacherOrAdmin = await this.roleService.isTeacherOrAdmin(userJP);
 		let task;
 		if (isTeacherOrAdmin) {
@@ -42,6 +53,9 @@ export class TaskService {
 		} else {
 			task = await this.prismaService.task.findUnique({
 				where: { id },
+				include: {
+					// Если необходимо ограничить доступ к тестам для неадминов/неучителей, добавьте условия здесь
+				},
 			});
 		}
 
@@ -49,10 +63,15 @@ export class TaskService {
 			throw new NotFoundException(`Task with ID ${id} not found`);
 		}
 
-		return task;
+		const { TaskTest, ...otherFields } = task;
+		return {
+			...otherFields,
+			tests: TaskTest,
+		};
 	}
 
-	async update(id: number, updateTaskDto: UpdateTaskDto): Promise<Task> {
+	async update(id: number, updateTaskDto: UpdateTaskDto): Promise<any> {
+		// Возвращает TaskResponse
 		const { tests, ...taskData } = updateTaskDto;
 		const existingTask = await this.prismaService.task.findUnique({
 			where: { id },
@@ -63,8 +82,9 @@ export class TaskService {
 			throw new NotFoundException(`Task with ID ${id} not found`);
 		}
 
-		return this.prismaService.$transaction(async (prisma) => {
-			const updatedTask = await prisma.task.update({
+		const updatedTask = await this.prismaService.$transaction(async (prisma) => {
+			// Обновляем основные данные задачи
+			await prisma.task.update({
 				where: { id },
 				data: { ...taskData },
 			});
@@ -75,9 +95,11 @@ export class TaskService {
 
 				// Удаление тестов, которых нет в входящих данных
 				const testsToDelete = existingTestIds.filter((id) => !incomingTestIds.includes(id));
-				await prisma.taskTest.deleteMany({ where: { id: { in: testsToDelete } } });
+				if (testsToDelete.length > 0) {
+					await prisma.taskTest.deleteMany({ where: { id: { in: testsToDelete } } });
+				}
 
-				// Обновление и создание тестов
+				// Обновление существующих тестов и создание новых
 				for (const test of tests) {
 					if (test.id) {
 						// Обновление существующего теста
@@ -97,12 +119,29 @@ export class TaskService {
 				await prisma.taskTest.deleteMany({ where: { taskId: id } });
 			}
 
-			return updatedTask;
+			// Получаем обновленную задачу
+			const taskAfterUpdate = await prisma.task.findUnique({
+				where: { id },
+				include: { TaskTest: true },
+			});
+
+			const { TaskTest, ...otherFields } = taskAfterUpdate;
+			return {
+				...otherFields,
+				tests: TaskTest,
+			};
 		});
+
+		if (!updatedTask) {
+			throw new NotFoundException(`Task with ID ${id} not found after update`);
+		}
+
+		return updatedTask;
 	}
 
-	async remove(id: number): Promise<Task> {
-		const task = await this.prismaService.task.findUnique({ where: { id } });
+	async remove(id: number): Promise<any> {
+		// Возвращает TaskResponse
+		const task = await this.prismaService.task.findUnique({ where: { id }, include: { TaskTest: true } });
 
 		if (!task) {
 			throw new NotFoundException(`Task with ID ${id} not found`);
@@ -111,22 +150,24 @@ export class TaskService {
 		await this.prismaService.taskTest.deleteMany({ where: { taskId: id } });
 		await this.prismaService.task.delete({ where: { id } });
 
-		return task;
+		const { TaskTest, ...otherFields } = task;
+		return {
+			...otherFields,
+			tests: TaskTest,
+		};
 	}
 
 	/**
 	 * Получает все задачи для указанной темы.
 	 * @param {number} themeId - Идентификатор темы.
-	 * @returns {Promise<Task[]>} - Массив задач, принадлежащих теме.
+	 * @returns {Promise<any[]>} - Массив задач, принадлежащих теме с полем tests.
 	 */
-	async findAllByThemeId(themeId: number): Promise<Task[]> {
+	async findAllByThemeId(themeId: number): Promise<any[]> {
+		// Возвращает массив TaskResponse
 		const tasks = await this.prismaService.task.findMany({
 			where: {
 				themeId: themeId,
 				isDisable: false, // Получаем только активные задачи.
-			},
-			include: {
-				TaskTest: true, // Включаем связанные тесты для каждой задачи.
 			},
 		});
 
@@ -218,8 +259,6 @@ export class TaskService {
 		});
 
 		const results = await Promise.all(testPromises);
-
-		// Подсчет успешно пройденных тестов
 		const passedTestsCount = results.filter((result) => result).length;
 
 		return {
@@ -231,7 +270,6 @@ export class TaskService {
 	}
 
 	async getTestResultsByTaskAndUser(userId: string, taskId: number): Promise<TestResultsSummary[]> {
-		// Найти все сборки (builds), соответствующие заданному пользователю и задаче
 		const builds = await this.prismaService.build.findMany({
 			where: {
 				userId: userId,
